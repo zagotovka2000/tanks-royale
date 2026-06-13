@@ -1,0 +1,336 @@
+* {
+   margin: 0;
+   padding: 0;
+   box-sizing: border-box;
+   user-select: none;
+}
+
+body {
+   background: linear-gradient(135deg, #0a0a1a 0%, #1a1a2e 100%);
+   font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
+   min-height: 100vh;
+   display: flex;
+   justify-content: center;
+   align-items: center;
+   overflow: hidden;
+   touch-action: pinch-zoom;
+}
+
+#loadingScreen {
+   position: fixed;
+   top: 0;
+   left: 0;
+   width: 100%;
+   height: 100%;
+   background: linear-gradient(135deg, #0a0a1a, #1a1a2e);
+   display: flex;
+   flex-direction: column;
+   justify-content: center;
+   align-items: center;
+   z-index: 1000;
+}
+
+.loader {
+   width: 60px;
+   height: 60px;
+   border: 4px solid #e94560;
+   border-top-color: transparent;
+   border-radius: 50%;
+   animation: spin 1s linear infinite;
+}
+
+@keyframes spin {
+   to { transform: rotate(360deg); }
+}
+
+#loadingScreen h2 {
+   margin-top: 20px;
+   color: white;
+   font-size: 18px;
+}
+
+#gameScreen {
+   display: none;
+   width: 100%;
+   height: 100vh;
+   padding: 10px;
+   position: relative;
+   overflow: hidden;
+}
+
+.game-wrapper {
+   max-width: 100%;
+   height: 100%;
+   display: flex;
+   flex-direction: column;
+   position: relative;
+}
+
+.stats-panel {
+   background: rgba(0, 0, 0, 0.85);
+   backdrop-filter: blur(10px);
+   border-radius: 20px;
+   padding: 12px 20px;
+   margin-bottom: 10px;
+   display: flex;
+   justify-content: space-between;
+   color: white;
+   font-weight: bold;
+   flex-wrap: wrap;
+   gap: 10px;
+   z-index: 10;
+}
+
+.stat {
+   display: flex;
+   align-items: center;
+   gap: 8px;
+   font-size: 14px;
+}
+
+.stat-icon {
+   font-size: 18px;
+}
+
+.cooldown-bar {
+   background: rgba(0, 0, 0, 0.5);
+   border-radius: 10px;
+   height: 6px;
+   width: 100px;
+   overflow: hidden;
+}
+
+.cooldown-fill {
+   height: 100%;
+   background: #e94560;
+   width: 100%;
+   transition: width 0.1s linear;
+}
+
+.canvas-container {
+   flex: 1;
+   display: flex;
+   justify-content: center;
+   align-items: center;
+   position: relative;
+   overflow: hidden;
+   touch-action: pinch-zoom;
+}
+
+canvas {
+   border-radius: 16px;
+   box-shadow: 0 10px 40px rgba(0, 0, 0, 0.5);
+   cursor: crosshair;
+   transition: transform 0.1s ease-out;
+   transform-origin: center center;
+}
+
+.controls-panel {
+   background: rgba(0, 0, 0, 0.85);
+   backdrop-filter: blur(10px);
+   border-radius: 60px;
+   padding: 12px 20px;
+   margin-top: 10px;
+   display: flex;
+   justify-content: center;
+   gap: 12px;
+   flex-wrap: wrap;
+   z-index: 10;
+}
+
+.control-btn {
+   width: 65px;
+   height: 65px;
+   border-radius: 35px;
+   border: none;
+   font-size: 28px;
+   background: rgba(255, 255, 255, 0.2);
+   color: white;
+   cursor: pointer;
+   transition: all 0.1s;
+   touch-action: manipulation;
+}
+
+.control-btn:active {
+   transform: scale(0.92);
+   background: #e94560;
+}
+
+.shoot-btn {
+   background: #e94560;
+   box-shadow: 0 0 20px rgba(233, 69, 96, 0.5);
+   font-weight: bold;
+   font-size: 22px;
+}
+
+.reset-btn {
+   background: #ff9800;
+   font-size: 18px;
+}
+
+.zoom-controls {
+   position: absolute;
+   bottom: 100px;
+   right: 10px;
+   display: flex;
+   flex-direction: column;
+   gap: 8px;
+   z-index: 20;
+}
+
+.zoom-btn {
+   width: 45px;
+   height: 45px;
+   border-radius: 25px;
+   background: rgba(0, 0, 0, 0.7);
+   backdrop-filter: blur(5px);
+   border: none;
+   color: white;
+   font-size: 24px;
+   cursor: pointer;
+   touch-action: manipulation;
+}
+
+.messages {
+   position: fixed;
+   top: 80px;
+   left: 50%;
+   transform: translateX(-50%);
+   z-index: 200;
+   pointer-events: none;
+   text-align: center;
+}
+
+.message {
+   background: rgba(0, 0, 0, 0.85);
+   color: #ffeb3b;
+   padding: 8px 16px;
+   border-radius: 25px;
+   margin: 5px;
+   font-size: 13px;
+   font-weight: bold;
+   animation: fadeOutUp 2s forwards;
+}
+
+@keyframes fadeOutUp {
+   0% { opacity: 1; transform: translateY(0); }
+   70% { opacity: 1; }
+   100% { opacity: 0; transform: translateY(-30px); }
+}
+
+#gameOverScreen {
+   position: fixed;
+   top: 0;
+   left: 0;
+   width: 100%;
+   height: 100%;
+   background: rgba(0, 0, 0, 0.95);
+   display: none;
+   justify-content: center;
+   align-items: center;
+   z-index: 1000;
+}
+
+.gameover-card {
+   background: linear-gradient(135deg, #1e1e2e, #2a2a3e);
+   padding: 40px;
+   border-radius: 30px;
+   text-align: center;
+   color: white;
+   max-width: 90%;
+   animation: bounceIn 0.5s;
+}
+
+@keyframes bounceIn {
+   0% { transform: scale(0); opacity: 0; }
+   50% { transform: scale(1.05); }
+   100% { transform: scale(1); opacity: 1; }
+}
+
+.gameover-card h1 {
+   font-size: 26px;
+   margin-bottom: 20px;
+   color: #e94560;
+}
+
+.winner-text {
+   font-size: 28px;
+   margin: 20px 0;
+   color: #ffeb3b;
+}
+
+.gameover-card button {
+   background: #e94560;
+   color: white;
+   border: none;
+   padding: 12px 30px;
+   border-radius: 30px;
+   font-size: 16px;
+   cursor: pointer;
+   margin-top: 20px;
+}
+
+@media (max-width: 600px) {
+   .control-btn {
+       width: 55px;
+       height: 55px;
+       font-size: 24px;
+   }
+   
+   .stat {
+       font-size: 11px;
+   }
+   
+   .zoom-btn {
+       width: 38px;
+       height: 38px;
+       font-size: 20px;
+   }
+}
+/* Добавьте в style.css */
+.hex-controls {
+   position: fixed;
+   bottom: 20px;
+   left: 20px;
+   background: rgba(0,0,0,0.85);
+   backdrop-filter: blur(10px);
+   border-radius: 80px;
+   padding: 15px;
+   display: flex;
+   flex-direction: column;
+   align-items: center;
+   gap: 8px;
+   z-index: 30;
+}
+
+.hex-controls button {
+   width: 55px;
+   height: 55px;
+   border-radius: 30px;
+   border: none;
+   font-size: 24px;
+   background: rgba(255,255,255,0.2);
+   color: white;
+   cursor: pointer;
+   transition: 0.1s;
+   margin: 2px;
+}
+
+.hex-controls button:active {
+   transform: scale(0.95);
+   background: #e94560;
+}
+
+.hex-controls div {
+   display: flex;
+   gap: 10px;
+   justify-content: center;
+}
+
+@media (max-width: 600px) {
+   .hex-controls button {
+       width: 45px;
+       height: 45px;
+       font-size: 18px;
+   }
+}

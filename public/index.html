@@ -1,0 +1,273 @@
+<!DOCTYPE html>
+<html lang="ru">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, user-scalable=no, viewport-fit=cover">
+    <title>Tank Royale - Гексагональная битва</title>
+    <style>
+        * { margin: 0; padding: 0; box-sizing: border-box; user-select: none; }
+        body {
+            background: linear-gradient(135deg, #0a0a1a, #1a1a2e);
+            font-family: 'Segoe UI', sans-serif;
+            min-height: 100vh;
+            display: flex;
+            justify-content: center;
+            align-items: center;
+            overflow: hidden;
+        }
+        #loadingScreen {
+            position: fixed;
+            top: 0;
+            left: 0;
+            width: 100%;
+            height: 100%;
+            background: linear-gradient(135deg, #0a0a1a, #1a1a2e);
+            display: flex;
+            flex-direction: column;
+            justify-content: center;
+            align-items: center;
+            z-index: 1000;
+        }
+        .loader {
+            width: 60px;
+            height: 60px;
+            border: 4px solid #e94560;
+            border-top-color: transparent;
+            border-radius: 50%;
+            animation: spin 1s linear infinite;
+        }
+        @keyframes spin { to { transform: rotate(360deg); } }
+        #gameScreen {
+            display: none;
+            width: 100%;
+            height: 100vh;
+            padding: 10px;
+            position: relative;
+        }
+        .game-wrapper {
+            max-width: 100%;
+            height: 100%;
+            display: flex;
+            flex-direction: column;
+        }
+        .stats-panel {
+            background: rgba(0,0,0,0.85);
+            backdrop-filter: blur(10px);
+            border-radius: 20px;
+            padding: 12px 20px;
+            margin-bottom: 10px;
+            display: flex;
+            justify-content: space-between;
+            color: white;
+            font-weight: bold;
+            flex-wrap: wrap;
+            gap: 10px;
+        }
+        .stat { display: flex; align-items: center; gap: 8px; font-size: 14px; }
+        .mode-indicator {
+            background: rgba(0,0,0,0.5);
+            padding: 4px 12px;
+            border-radius: 20px;
+            display: flex;
+            align-items: center;
+            gap: 8px;
+        }
+        .cooldown-bar {
+            background: rgba(0,0,0,0.5);
+            border-radius: 10px;
+            height: 6px;
+            width: 100px;
+            overflow: hidden;
+        }
+        .cooldown-fill { height: 100%; background: #e94560; width: 100%; transition: width 0.1s linear; }
+        .canvas-container {
+            flex: 1;
+            display: flex;
+            justify-content: center;
+            align-items: center;
+            overflow: hidden;
+        }
+        canvas {
+            border-radius: 16px;
+            box-shadow: 0 10px 40px rgba(0,0,0,0.5);
+            cursor: grab;
+        }
+        canvas:active { cursor: grabbing; }
+        .controls-panel {
+            background: rgba(0,0,0,0.85);
+            backdrop-filter: blur(10px);
+            border-radius: 60px;
+            padding: 12px 20px;
+            margin-top: 10px;
+            display: flex;
+            justify-content: center;
+            gap: 15px;
+        }
+        .shoot-btn {
+            width: 100px;
+            height: 60px;
+            border-radius: 30px;
+            border: none;
+            font-size: 20px;
+            font-weight: bold;
+            background: #e94560;
+            color: white;
+            cursor: pointer;
+            transition: 0.1s;
+        }
+        .shoot-btn:active { transform: scale(0.95); }
+        .reset-btn {
+            width: 60px;
+            height: 60px;
+            border-radius: 30px;
+            border: none;
+            font-size: 20px;
+            background: #ff9800;
+            color: white;
+            cursor: pointer;
+        }
+        .zoom-controls {
+            position: absolute;
+            bottom: 100px;
+            right: 10px;
+            display: flex;
+            flex-direction: column;
+            gap: 8px;
+            z-index: 20;
+        }
+        .zoom-btn {
+            width: 45px;
+            height: 45px;
+            border-radius: 25px;
+            background: rgba(0,0,0,0.7);
+            border: none;
+            color: white;
+            font-size: 24px;
+            cursor: pointer;
+        }
+        .messages {
+            position: fixed;
+            top: 80px;
+            left: 50%;
+            transform: translateX(-50%);
+            z-index: 200;
+            pointer-events: none;
+            text-align: center;
+        }
+        .message {
+            background: rgba(0,0,0,0.85);
+            color: #ffeb3b;
+            padding: 8px 16px;
+            border-radius: 25px;
+            margin: 5px;
+            font-size: 13px;
+            font-weight: bold;
+            animation: fadeOutUp 2s forwards;
+        }
+        @keyframes fadeOutUp {
+            0% { opacity: 1; }
+            100% { opacity: 0; transform: translateY(-30px); }
+        }
+        #gameOverScreen {
+            position: fixed;
+            top: 0;
+            left: 0;
+            width: 100%;
+            height: 100%;
+            background: rgba(0,0,0,0.95);
+            display: none;
+            justify-content: center;
+            align-items: center;
+            z-index: 1000;
+        }
+        .gameover-card {
+            background: linear-gradient(135deg, #1e1e2e, #2a2a3e);
+            padding: 40px;
+            border-radius: 30px;
+            text-align: center;
+            color: white;
+            max-width: 90%;
+        }
+        .winner-text { font-size: 28px; margin: 20px 0; color: #ffeb3b; }
+        .gameover-card button {
+            background: #e94560;
+            color: white;
+            border: none;
+            padding: 12px 30px;
+            border-radius: 30px;
+            font-size: 16px;
+            cursor: pointer;
+        }
+        @media (max-width: 600px) {
+            .shoot-btn { width: 80px; height: 50px; font-size: 16px; }
+            .stat { font-size: 11px; }
+        }
+    </style>
+</head>
+<body>
+    <div id="loadingScreen">
+        <div class="loader"></div>
+        <h2>Подключение к битве...</h2>
+    </div>
+
+    <div id="gameScreen">
+        <div class="game-wrapper">
+            <div class="stats-panel">
+                <div class="stat">❤️ <span id="hpValue">100</span></div>
+                <div class="stat">🗡️ <span id="killsValue">0</span></div>
+                <div class="stat">💀 <span id="enemiesValue">0</span></div>
+                <div class="stat">🎯 <span id="targetStatus">нет</span></div>
+                <div class="mode-indicator">
+                    <span>🎮 Режим:</span>
+                    <span id="modeStatus" style="color: #e94560; font-weight: bold;">🔫 СТРЕЛЬБА</span>
+                </div>
+                <div class="stat">
+                    ⏱️
+                    <div class="cooldown-bar"><div class="cooldown-fill" id="cooldownFill"></div></div>
+                    <span id="cooldownText">готов</span>
+                </div>
+            </div>
+
+            <div class="canvas-container">
+                <canvas id="gameCanvas" width="600" height="600"></canvas>
+            </div>
+
+            <div class="controls-panel">
+                <button class="shoot-btn" onclick="window.shoot()">🔫 ВЫСТРЕЛ</button>
+                <button class="reset-btn" onclick="window.resetGame()">🔄</button>
+            </div>
+        </div>
+    </div>
+
+    <div class="zoom-controls">
+        <button class="zoom-btn" onclick="window.zoomIn()">➕</button>
+        <button class="zoom-btn" onclick="window.zoomOut()">➖</button>
+        <button class="zoom-btn" onclick="window.resetZoom()">⟲</button>
+    </div>
+
+    <div id="gameOverScreen">
+        <div class="gameover-card">
+            <h1>🏆 ИГРА ОКОНЧЕНА 🏆</h1>
+            <div id="winnerText" class="winner-text"></div>
+            <button onclick="window.resetGame()">🔄 Новая битва</button>
+        </div>
+    </div>
+    
+    <div class="hex-controls">
+      <button onclick="move('up')">▲</button>
+      <div>
+          <button onclick="move('up-left')">◤</button>
+          <button onclick="move('up-right')">◥</button>
+      </div>
+      <div>
+          <button onclick="move('down-left')">◣</button>
+          <button onclick="move('down-right')">◢</button>
+      </div>
+      <button onclick="move('down')">▼</button>
+  </div>
+    <div class="messages" id="messages"></div>
+
+    <script src="/socket.io/socket.io.js"></script>
+    <script src="/js/main.js"></script>
+</body>
+</html>

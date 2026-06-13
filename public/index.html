@@ -37,6 +37,11 @@
             animation: spin 1s linear infinite;
         }
         @keyframes spin { to { transform: rotate(360deg); } }
+        #loadingScreen h2 {
+            margin-top: 20px;
+            color: white;
+            font-size: 18px;
+        }
         #gameScreen {
             display: none;
             width: 100%;
@@ -198,9 +203,52 @@
             font-size: 16px;
             cursor: pointer;
         }
+        
+        /* Гексагональные кнопки управления */
+        .hex-controls {
+            position: fixed;
+            bottom: 20px;
+            left: 20px;
+            background: rgba(0,0,0,0.85);
+            backdrop-filter: blur(10px);
+            border-radius: 80px;
+            padding: 15px;
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+            gap: 8px;
+            z-index: 30;
+        }
+        .hex-controls button {
+            width: 55px;
+            height: 55px;
+            border-radius: 30px;
+            border: none;
+            font-size: 24px;
+            background: rgba(255,255,255,0.2);
+            color: white;
+            cursor: pointer;
+            transition: 0.1s;
+            margin: 2px;
+        }
+        .hex-controls button:active {
+            transform: scale(0.95);
+            background: #e94560;
+        }
+        .hex-controls div {
+            display: flex;
+            gap: 10px;
+            justify-content: center;
+        }
+        
         @media (max-width: 600px) {
             .shoot-btn { width: 80px; height: 50px; font-size: 16px; }
             .stat { font-size: 11px; }
+            .hex-controls button {
+                width: 45px;
+                height: 45px;
+                font-size: 18px;
+            }
         }
     </style>
 </head>
@@ -233,38 +281,39 @@
             </div>
 
             <div class="controls-panel">
-                <button class="shoot-btn" onclick="window.shoot()">🔫 ВЫСТРЕЛ</button>
-                <button class="reset-btn" onclick="window.resetGame()">🔄</button>
+                <button class="shoot-btn" id="shootBtn">🔫 ВЫСТРЕЛ</button>
+                <button class="reset-btn" id="resetBtn">🔄</button>
             </div>
         </div>
     </div>
 
     <div class="zoom-controls">
-        <button class="zoom-btn" onclick="window.zoomIn()">➕</button>
-        <button class="zoom-btn" onclick="window.zoomOut()">➖</button>
-        <button class="zoom-btn" onclick="window.resetZoom()">⟲</button>
+        <button class="zoom-btn" id="zoomInBtn">➕</button>
+        <button class="zoom-btn" id="zoomOutBtn">➖</button>
+        <button class="zoom-btn" id="resetZoomBtn">⟲</button>
+    </div>
+
+    <div class="hex-controls">
+        <button data-dir="up">▲</button>
+        <div>
+            <button data-dir="up-left">◤</button>
+            <button data-dir="up-right">◥</button>
+        </div>
+        <div>
+            <button data-dir="down-left">◣</button>
+            <button data-dir="down-right">◢</button>
+        </div>
+        <button data-dir="down">▼</button>
     </div>
 
     <div id="gameOverScreen">
         <div class="gameover-card">
             <h1>🏆 ИГРА ОКОНЧЕНА 🏆</h1>
             <div id="winnerText" class="winner-text"></div>
-            <button onclick="window.resetGame()">🔄 Новая битва</button>
+            <button id="newGameBtn">🔄 Новая битва</button>
         </div>
     </div>
     
-    <div class="hex-controls">
-      <button onclick="move('up')">▲</button>
-      <div>
-          <button onclick="move('up-left')">◤</button>
-          <button onclick="move('up-right')">◥</button>
-      </div>
-      <div>
-          <button onclick="move('down-left')">◣</button>
-          <button onclick="move('down-right')">◢</button>
-      </div>
-      <button onclick="move('down')">▼</button>
-  </div>
     <div class="messages" id="messages"></div>
 
     <script src="/socket.io/socket.io.js"></script>

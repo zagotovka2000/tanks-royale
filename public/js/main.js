@@ -17,10 +17,9 @@ let lastPanX = 0, lastPanY = 0;
 let userId = 'player_' + Math.random().toString(36).substr(2, 6);
 let userName = 'Командир';
 
-// Размер гекса
+// Размер гекса (zoom)
 let hexSize = 30;
 
-// 6 направлений для гексагональной сетки
 const HEX_DIRECTIONS = [
     { q: 0, r: -1, name: 'up' },
     { q: 1, r: -1, name: 'up-right' },
@@ -29,121 +28,6 @@ const HEX_DIRECTIONS = [
     { q: -1, r: 1, name: 'down-left' },
     { q: -1, r: 0, name: 'left' }
 ];
-
-// Движение в 6 направлениях
-function move(direction) {
-    if (!gameState || !gameState.myTank) {
-        showMessage('❌ Игра не загружена');
-        return;
-    }
-    
-    if (gameState.gameOver) {
-        showMessage('❌ Игра окончена');
-        return;
-    }
-    
-    const myTank = gameState.myTank;
-    let targetQ = myTank.q;
-    let targetR = myTank.r;
-    
-    switch(direction) {
-        case 'up': targetR--; break;
-        case 'up-right': targetQ++; targetR--; break;
-        case 'right': targetQ++; break;
-        case 'down-right': targetQ++; targetR++; break;
-        case 'down': targetR++; break;
-        case 'down-left': targetQ--; targetR++; break;
-        case 'left': targetQ--; break;
-        default: return;
-    }
-    
-    // Проверка существования клетки для новой карты
-    let isValid = false;
-    if (gameState.cells) {
-        isValid = gameState.cells.some(cell => cell.q === targetQ && cell.r === targetR);
-    } else if (gameState.size) {
-        isValid = targetQ >= 0 && targetQ < gameState.size && 
-                  targetR >= 0 && targetR < gameState.size;
-    }
-    
-    if (!isValid) {
-        showMessage(`❌ Нельзя туда двигаться`);
-        return;
-    }
-    
-    // Проверка на стену
-    const hasWall = gameState.walls?.some(w => w.q === targetQ && w.r === targetR);
-    if (hasWall) {
-        showMessage(`🧱 Там стена! Нельзя пройти`);
-        return;
-    }
-    
-    // Проверка на занятость
-    const isOccupied = [...(gameState.enemies || []), ...(gameState.allies || [])].some(
-        u => u.active !== false && u.q === targetQ && u.r === targetR
-    );
-    if (isOccupied) {
-        showMessage(`⚠️ Клетка занята другим танком`);
-        return;
-    }
-    
-    socket.emit('move', { q: targetQ, r: targetR });
-    showMessage(`🚶 Движение на (${targetQ},${targetR})`);
-}
-
-function init() {
-    canvas = document.getElementById('gameCanvas');
-    ctx = canvas.getContext('2d');
-    
-    resizeCanvas();
-    initEvents();
-    initButtons();
-    connect();
-    startAnimation();
-    
-    window.addEventListener('resize', () => {
-        resizeCanvas();
-        drawGame();
-    });
-}
-
-function initButtons() {
-    // Кнопки движения
-    document.querySelectorAll('.hex-controls button[data-dir]').forEach(btn => {
-        btn.addEventListener('click', () => move(btn.getAttribute('data-dir')));
-    });
-    
-    // Кнопка выстрела
-    document.getElementById('shootBtn')?.addEventListener('click', shoot);
-    
-    // Кнопка сброса
-    document.getElementById('resetBtn')?.addEventListener('click', resetGame);
-    document.getElementById('newGameBtn')?.addEventListener('click', resetGame);
-    
-    // Кнопки зума
-    document.getElementById('zoomInBtn')?.addEventListener('click', () => {
-        hexSize = Math.min(60, hexSize + 2);
-        drawGame();
-    });
-    document.getElementById('zoomOutBtn')?.addEventListener('click', () => {
-        hexSize = Math.max(20, hexSize - 2);
-        drawGame();
-    });
-    document.getElementById('resetZoomBtn')?.addEventListener('click', () => {
-        hexSize = 30;
-        panX = 0;
-        panY = 0;
-        drawGame();
-    });
-}
-
-function resizeCanvas() {
-    const container = canvas.parentElement;
-    const size = Math.min(container.clientWidth, window.innerHeight * 0.7);
-    canvas.width = size;
-    canvas.height = size;
-    hexSize = Math.min(canvas.width / 12, 35);
-}
 
 function hexToPixel(q, r) {
     const x = hexSize * (Math.sqrt(3) * q + Math.sqrt(3)/2 * r);
@@ -201,6 +85,120 @@ function drawHex(q, r, color, isVisible = true) {
     }
 }
 
+function move(direction) {
+    if (!gameState || !gameState.myTank) {
+        showMessage('❌ Игра не загружена');
+        return;
+    }
+    
+    if (gameState.gameOver) {
+        showMessage('❌ Игра окончена');
+        return;
+    }
+    
+    const myTank = gameState.myTank;
+    let targetQ = myTank.q;
+    let targetR = myTank.r;
+    
+    switch(direction) {
+        case 'up': targetR--; break;
+        case 'up-right': targetQ++; targetR--; break;
+        case 'right': targetQ++; break;
+        case 'down-right': targetQ++; targetR++; break;
+        case 'down': targetR++; break;
+        case 'down-left': targetQ--; targetR++; break;
+        case 'left': targetQ--; break;
+        default: return;
+    }
+    
+    const cellExists = gameState.cells?.some(cell => cell.q === targetQ && cell.r === targetR);
+    if (!cellExists) {
+        showMessage(`❌ Нельзя туда двигаться`);
+        return;
+    }
+    
+    const hasWall = gameState.walls?.some(w => w.q === targetQ && w.r === targetR);
+    if (hasWall) {
+        showMessage(`🧱 Там стена! Нельзя пройти`);
+        return;
+    }
+    
+    const isOccupied = [...(gameState.enemies || []), ...(gameState.allies || [])].some(
+        u => u.active !== false && u.q === targetQ && u.r === targetR
+    );
+    if (isOccupied) {
+        showMessage(`⚠️ Клетка занята другим танком`);
+        return;
+    }
+    
+    socket.emit('move', { q: targetQ, r: targetR });
+    showMessage(`🚶 Движение на (${targetQ},${targetR})`);
+}
+
+function init() {
+    console.log('Initializing game...');
+    
+    canvas = document.getElementById('gameCanvas');
+    ctx = canvas.getContext('2d');
+    
+    canvas.width = 600;
+    canvas.height = 600;
+    
+    // Начальная позиция камеры
+    panX = 0;
+    panY = 0;
+    hexSize = 30;
+    
+    initEvents();
+    initButtons();
+    connect();
+    startAnimation();
+    
+    window.addEventListener('resize', () => {
+        const container = canvas.parentElement;
+        if (!container) return;
+        const size = Math.min(container.clientWidth, window.innerHeight * 0.7);
+        canvas.width = size;
+        canvas.height = size;
+        drawGame();
+    });
+}
+
+function initButtons() {
+    document.querySelectorAll('.hex-controls button[data-dir]').forEach(btn => {
+        btn.addEventListener('click', () => move(btn.getAttribute('data-dir')));
+    });
+    
+    const shootBtn = document.getElementById('shootBtn');
+    if (shootBtn) shootBtn.addEventListener('click', shoot);
+    
+    const resetBtn = document.getElementById('resetBtn');
+    if (resetBtn) resetBtn.addEventListener('click', resetGame);
+    
+    const newGameBtn = document.getElementById('newGameBtn');
+    if (newGameBtn) newGameBtn.addEventListener('click', resetGame);
+    
+    const zoomInBtn = document.getElementById('zoomInBtn');
+    if (zoomInBtn) zoomInBtn.addEventListener('click', () => {
+        hexSize = Math.min(60, hexSize + 2);
+        drawGame();
+    });
+    
+    const zoomOutBtn = document.getElementById('zoomOutBtn');
+    if (zoomOutBtn) zoomOutBtn.addEventListener('click', () => {
+        hexSize = Math.max(20, hexSize - 2);
+        drawGame();
+    });
+    
+    const resetZoomBtn = document.getElementById('resetZoomBtn');
+    if (resetZoomBtn) resetZoomBtn.addEventListener('click', () => {
+        hexSize = 30;
+        panX = 0;
+        panY = 0;
+        drawGame();
+    });
+}
+
 function initEvents() {
     canvas.addEventListener('mousedown', (e) => {
         isDragging = true;
@@ -254,20 +252,12 @@ function onCanvasClick(e) {
     
     if (!gameState) return;
     
-    // Проверка для новой карты (с cells)
-    let isValid = false;
-    if (gameState.cells) {
-        isValid = gameState.cells.some(cell => cell.q === hex.q && cell.r === hex.r);
-    } else if (gameState.size) {
-        isValid = hex.q >= 0 && hex.q < gameState.size && hex.r >= 0 && hex.r < gameState.size;
-    }
-    
-    if (!isValid) return;
+    const cellExists = gameState.cells?.some(cell => cell.q === hex.q && cell.r === hex.r);
+    if (!cellExists) return;
     
     const player = gameState.myTank;
     const isMyTank = (player.q === hex.q && player.r === hex.r);
     const adjacent = isAdjacentHex(player.q, player.r, hex.q, hex.r);
-    
     const hasWall = gameState.walls?.some(w => w.q === hex.q && w.r === hex.r);
     
     if (isMyTank) {
@@ -340,12 +330,15 @@ function connect() {
         document.getElementById('gameScreen').style.display = 'flex';
         socket.emit('joinGame', { userId, userName });
         showMessage('✅ Добро пожаловать! Кликните на СВОЙ ТАНК для движения');
+        drawGame();
     });
     
     socket.on('gameState', (state) => {
+        console.log('Game state received, cells:', state.cells?.length);
         gameState = state;
         updateStats();
         updateCooldown(state.lastActionTime);
+        // НИЧЕГО НЕ МЕНЯЕМ - камера остаётся на месте
         drawGame();
     });
     
@@ -428,31 +421,32 @@ function startAnimation() {
 }
 
 function drawGame() {
-    if (!gameState) return;
+    if (!gameState) {
+        if (ctx) {
+            ctx.fillStyle = '#1a1a2a';
+            ctx.fillRect(0, 0, canvas.width, canvas.height);
+            ctx.fillStyle = 'white';
+            ctx.font = '20px Arial';
+            ctx.textAlign = 'center';
+            ctx.fillText('Загрузка...', canvas.width/2, canvas.height/2);
+        }
+        return;
+    }
+    
+    if (!ctx) return;
     
     ctx.clearRect(0, 0, canvas.width, canvas.height);
     ctx.fillStyle = '#1a1a2a';
     ctx.fillRect(0, 0, canvas.width, canvas.height);
     
-    // Получаем все клетки из gameState (новая карта)
-    let cells = gameState.cells || [];
+    const cells = gameState.cells || [];
     
-    // Для старой квадратной карты
-    if (!cells.length && gameState.size) {
-        for (let q = 0; q < gameState.size; q++) {
-            for (let r = 0; r < gameState.size; r++) {
-                cells.push({ q, r });
-            }
-        }
-    }
-    
-    // Рисуем все гексы
     cells.forEach(cell => {
         const q = cell.q;
         const r = cell.r;
         const isVisible = gameState.visibleCells?.some(vc => vc.q === q && vc.r === r);
-        let color;
         
+        let color;
         if (isVisible) {
             const isBase = gameState.bases?.some(b => b.q === q && b.r === r);
             if (isBase) {
@@ -461,8 +455,10 @@ function drawGame() {
                 color = '#5a4a3a';
             } else if (cell.terrain === 'forest') {
                 color = '#2d5a2d';
+            } else if (cell.terrain === 'arena') {
+                color = '#8B7355';
             } else {
-                color = (q + r) % 2 === 0 ? '#2d6a4f' : '#1b5e3f';
+                color = (Math.abs(q + r) % 2 === 0) ? '#2d6a4f' : '#1b5e3f';
             }
         } else {
             color = '#2a3a2a';
@@ -484,15 +480,24 @@ function drawGame() {
     }
     
     if (gameState.allies) {
-        gameState.allies.forEach(ally => drawTank(ally.q, ally.r, ally.color, ally.name, ally.hp, ally.maxHp, false, ally.direction));
+        gameState.allies.forEach(ally => {
+            if (ally.active !== false) {
+                drawTank(ally.q, ally.r, ally.color, ally.name, ally.hp, ally.maxHp, false, ally.direction);
+            }
+        });
     }
     
     if (gameState.enemies) {
-        gameState.enemies.forEach(enemy => drawTank(enemy.q, enemy.r, enemy.color, enemy.name, enemy.hp, enemy.maxHp, false, enemy.direction));
+        gameState.enemies.forEach(enemy => {
+            if (enemy.active !== false) {
+                drawTank(enemy.q, enemy.r, enemy.color, enemy.name, enemy.hp, enemy.maxHp, false, enemy.direction);
+            }
+        });
     }
     
     if (gameState.myTank) {
-        drawTank(gameState.myTank.q, gameState.myTank.r, gameState.myTank.color, 'Я', gameState.myTank.hp, gameState.myTank.maxHp, true, gameState.myTank.direction);
+        drawTank(gameState.myTank.q, gameState.myTank.r, gameState.myTank.color, 'Я', 
+                 gameState.myTank.hp, gameState.myTank.maxHp, true, gameState.myTank.direction);
         
         if (isMyTankSelected) {
             const center = hexToPixel(gameState.myTank.q, gameState.myTank.r);
@@ -514,14 +519,8 @@ function drawGame() {
             HEX_DIRECTIONS.forEach(dir => {
                 const q = gameState.myTank.q + dir.q;
                 const r = gameState.myTank.r + dir.r;
-                let isValid = false;
-                if (gameState.cells) {
-                    isValid = gameState.cells.some(cell => cell.q === q && cell.r === r);
-                } else if (gameState.size) {
-                    isValid = q >= 0 && q < gameState.size && r >= 0 && r < gameState.size;
-                }
-                
-                if (isValid) {
+                const cellExists = cells.some(cell => cell.q === q && cell.r === r);
+                if (cellExists) {
                     const hasWall = gameState.walls?.some(w => w.q === q && w.r === r);
                     if (!hasWall) {
                         const center = hexToPixel(q, r);
@@ -734,12 +733,18 @@ function resetGame() {
     isMyTankSelected = false;
     particles = [];
     smokeParticles = [];
-    panX = 0;
-    panY = 0;
+    // НЕ сбрасываем камеру при сбросе игры!
     document.getElementById('gameOverScreen').style.display = 'none';
     document.getElementById('gameScreen').style.display = 'flex';
     showMessage('🔄 Новая битва!');
     drawGame();
+}
+
+function getHexDistance(q1, r1, q2, r2) {
+    const dq = Math.abs(q1 - q2);
+    const dr = Math.abs(r1 - r2);
+    const ds = Math.abs((-q1 - r1) - (-q2 - r2));
+    return (dq + dr + ds) / 2;
 }
 
 // Запуск

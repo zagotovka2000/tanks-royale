@@ -1,5 +1,5 @@
-// public/js/network/SocketClient.js
-export class SocketClient {
+// public/js/game/SocketClient.js
+class SocketClient {
    constructor(onGameState, onShootResult, onMessage, onGameEnded) {
        this.socket = null;
        this.onGameState = onGameState;
@@ -43,9 +43,15 @@ export class SocketClient {
        return this.socket;
    }
    
-   sendAction(action) {
+   sendMove(q, r) {
        if (this.socket) {
-           this.socket.emit('action', action);
+           this.socket.emit('move', { q, r });
+       }
+   }
+   
+   sendShoot(q, r) {
+       if (this.socket) {
+           this.socket.emit('shoot', { q, r });
        }
    }
    
@@ -61,3 +67,5 @@ export class SocketClient {
        }
    }
 }
+
+window.SocketClient = SocketClient;

@@ -1,31 +1,16 @@
 // public/js/main.js
-let socket = null;
-let gameState = null;
-let selectedTarget = null;
-let isMyTankSelected = false;
-let animationFrame = null;
 let canvas, ctx;
-let particles = [];
-let smokeParticles = [];
-
-// Анимация снарядов
-let projectiles = [];
-let aiShotsQueue = [];
-
-// Панорамирование
 let panX = 0, panY = 0;
+let hexSize = 30;
+let animationFrame = null;
 let isDragging = false;
 let dragStartX = 0, dragStartY = 0;
 let lastPanX = 0, lastPanY = 0;
 
-let userId = 'player_' + Math.random().toString(36).substr(2, 6);
-let userName = 'Командир';
-
-// Размер гекса (zoom)
-let hexSize = 30;
-
-// Скорость полёта снаряда
-const PROJECTILE_SPEED = 0.025;
+window.ctx = null;
+window.hexSize = hexSize;
+window.panX = panX;
+window.panY = panY;
 
 const HEX_DIRECTIONS = [
     { q: 0, r: -1, name: 'up' },
@@ -36,543 +21,168 @@ const HEX_DIRECTIONS = [
     { q: -1, r: 0, name: 'left' }
 ];
 
-function hexToPixel(q, r) {
+window.hexToPixel = function(q, r) {
     const x = hexSize * (Math.sqrt(3) * q + Math.sqrt(3)/2 * r);
     const y = hexSize * (3/2 * r);
-    return { 
-        x: x + panX + canvas.width/2, 
-        y: y + panY + canvas.height/2 
-    };
-}
+    return { x: x + panX + canvas.width/2, y: y + panY + canvas.height/2 };
+};
 
 function pixelToHex(x, y) {
     const adjustedX = (x - canvas.width/2 - panX) / hexSize;
     const adjustedY = (y - canvas.height/2 - panY) / hexSize;
-    
     let q = (Math.sqrt(3)/3 * adjustedX - 1/3 * adjustedY);
     let r = (2/3 * adjustedY);
-    
     let roundQ = Math.round(q);
     let roundR = Math.round(r);
-    
-    if (Math.abs(roundQ - q) > 0.5 || Math.abs(roundR - r) > 0.5) {
-        return { q: -1, r: -1 };
-    }
-    
+    if (Math.abs(roundQ - q) > 0.5 || Math.abs(roundR - r) > 0.5) return { q: -1, r: -1 };
     return { q: roundQ, r: roundR };
 }
 
 function drawHex(q, r, color, isVisible = true) {
-    const center = hexToPixel(q, r);
+    const center = window.hexToPixel(q, r);
     const points = [];
-    
     for (let i = 0; i < 6; i++) {
         const angle = Math.PI / 3 * i - Math.PI / 6;
         const x = center.x + hexSize * Math.cos(angle);
         const y = center.y + hexSize * Math.sin(angle);
         points.push({ x, y });
     }
-    
     ctx.beginPath();
     ctx.moveTo(points[0].x, points[0].y);
-    for (let i = 1; i < points.length; i++) {
-        ctx.lineTo(points[i].x, points[i].y);
-    }
+    for (let i = 1; i < points.length; i++) ctx.lineTo(points[i].x, points[i].y);
     ctx.closePath();
-    
     ctx.fillStyle = color;
     ctx.fill();
     ctx.strokeStyle = 'rgba(255,255,255,0.2)';
     ctx.lineWidth = 1;
     ctx.stroke();
-    
     if (!isVisible) {
         ctx.fillStyle = 'rgba(30, 40, 50, 0.7)';
         ctx.fill();
     }
 }
 
-function move(direction) {
-    if (!gameState || !gameState.myTank) {
-        showMessage('❌ Игра не загружена');
-        return;
-    }
-    
-    if (gameState.gameOver) {
-        showMessage('❌ Игра окончена');
-        return;
-    }
-    
-    const myTank = gameState.myTank;
-    let targetQ = myTank.q;
-    let targetR = myTank.r;
-    
-    switch(direction) {
-        case 'up': targetR--; break;
-        case 'up-right': targetQ++; targetR--; break;
-        case 'right': targetQ++; break;
-        case 'down-right': targetQ++; targetR++; break;
-        case 'down': targetR++; break;
-        case 'down-left': targetQ--; targetR++; break;
-        case 'left': targetQ--; break;
-        default: return;
-    }
-    
-    const cellExists = gameState.cells?.some(cell => cell.q === targetQ && cell.r === targetR);
-    if (!cellExists) {
-        showMessage(`❌ Нельзя туда двигаться`);
-        return;
-    }
-    
-    const hasWall = gameState.walls?.some(w => w.q === targetQ && w.r === targetR);
-    if (hasWall) {
-        showMessage(`🧱 Там стена! Нельзя пройти`);
-        return;
-    }
-    
-    const isOccupied = [...(gameState.enemies || []), ...(gameState.allies || [])].some(
-        u => u.active !== false && u.q === targetQ && u.r === targetR
-    );
-    if (isOccupied) {
-        showMessage(`⚠️ Клетка занята другим танком`);
-        return;
-    }
-    
-    socket.emit('move', { q: targetQ, r: targetR });
-    showMessage(`🚶 Движение на (${targetQ},${targetR})`);
+function drawTank(q, r, color, name, hp, maxHp, isPlayer, direction = 'right') {
+   const center = window.hexToPixel(q, r);
+   const size = hexSize * 0.7;
+   
+   ctx.save();
+   ctx.translate(center.x, center.y);
+   
+   // Углы поворота для всех 6 направлений на гексагональной сетке
+   // 0° = вправо, угол увеличивается против часовой стрелки
+   const rotations = {
+       'right': 0,                    // 0° → 
+       'up-right': -Math.PI / 6,      // -30° ↗
+       'up': -Math.PI / 2,            // -90° ↑
+       'up-left': -Math.PI * 5 / 6,   // -150° ↖
+       'left': Math.PI,               // 180° ←
+       'down-left': Math.PI * 5 / 6,  // 150° ↙
+       'down': Math.PI / 2,           // 90° ↓
+       'down-right': Math.PI / 6      // 30° ↘
+   };
+   
+   let rotation = rotations[direction];
+   if (rotation === undefined) rotation = 0;
+   ctx.rotate(rotation);
+   
+   // Корпус танка
+   ctx.fillStyle = color;
+   ctx.shadowBlur = isPlayer ? 8 : 2;
+   ctx.fillRect(-size/2, -size/2, size, size);
+   
+   // Гусеницы
+   ctx.fillStyle = '#444';
+   ctx.fillRect(-size/2 - 3, -size/2, 3, size);
+   ctx.fillRect(size/2, -size/2, 3, size);
+   
+   // Башня
+   ctx.fillStyle = isPlayer ? '#ffb300' : '#c62828';
+   ctx.beginPath();
+   ctx.arc(0, 0, size * 0.4, 0, Math.PI * 2);
+   ctx.fill();
+   
+   // Дуло (всегда вперёд относительно поворота танка)
+   ctx.fillStyle = '#555';
+   ctx.fillRect(size/2 - 5, -size*0.08, size*0.4, size*0.16);
+   
+   ctx.restore();
+   
+   // HP бар
+   const hpPercent = hp / maxHp;
+   ctx.fillStyle = '#ff5252';
+   ctx.fillRect(center.x - size/2, center.y - size/2 - 8, size, 4);
+   ctx.fillStyle = '#4caf50';
+   ctx.fillRect(center.x - size/2, center.y - size/2 - 8, size * hpPercent, 4);
+   
+   // Имя и HP
+   ctx.fillStyle = 'white';
+   ctx.font = `bold ${Math.max(10, hexSize / 3)}px Arial`;
+   ctx.shadowBlur = 0;
+   let displayName = name.length > 8 ? name.slice(0, 6) + '..' : name;
+   ctx.fillText(displayName, center.x - 18, center.y - size/2 - 12);
+   ctx.fillStyle = '#ffeb3b';
+   ctx.font = `bold ${Math.max(8, hexSize / 4)}px Arial`;
+   ctx.fillText(`${hp}`, center.x - 8, center.y - size/2 - 2);
 }
 
-function init() {
-    console.log('Initializing game...');
-    
-    canvas = document.getElementById('gameCanvas');
-    ctx = canvas.getContext('2d');
-    
-    canvas.width = 600;
-    canvas.height = 600;
-    
-    panX = 0;
-    panY = 0;
-    hexSize = 30;
-    
-    initEvents();
-    initButtons();
-    connect();
-    startAnimation();
-    
-    window.addEventListener('resize', () => {
-        const container = canvas.parentElement;
-        if (!container) return;
-        const size = Math.min(container.clientWidth, window.innerHeight * 0.7);
-        canvas.width = size;
-        canvas.height = size;
-        drawGame();
-    });
-}
-
-function initButtons() {
-    document.querySelectorAll('.hex-controls button[data-dir]').forEach(btn => {
-        btn.addEventListener('click', () => move(btn.getAttribute('data-dir')));
-    });
-    
-    const shootBtn = document.getElementById('shootBtn');
-    if (shootBtn) shootBtn.addEventListener('click', shoot);
-    
-    const resetBtn = document.getElementById('resetBtn');
-    if (resetBtn) resetBtn.addEventListener('click', resetGame);
-    
-    const newGameBtn = document.getElementById('newGameBtn');
-    if (newGameBtn) newGameBtn.addEventListener('click', resetGame);
-    
-    const zoomInBtn = document.getElementById('zoomInBtn');
-    if (zoomInBtn) zoomInBtn.addEventListener('click', () => {
-        hexSize = Math.min(60, hexSize + 2);
-        drawGame();
-    });
-    
-    const zoomOutBtn = document.getElementById('zoomOutBtn');
-    if (zoomOutBtn) zoomOutBtn.addEventListener('click', () => {
-        hexSize = Math.max(20, hexSize - 2);
-        drawGame();
-    });
-    
-    const resetZoomBtn = document.getElementById('resetZoomBtn');
-    if (resetZoomBtn) resetZoomBtn.addEventListener('click', () => {
-        hexSize = 30;
-        panX = 0;
-        panY = 0;
-        drawGame();
+function drawWalls() {
+    if (!window.gameState?.walls) return;
+    window.gameState.walls.forEach(wall => {
+        const center = window.hexToPixel(wall.q, wall.r);
+        const size = hexSize * 0.6;
+        ctx.fillStyle = wall.type === 'steel' ? '#708090' : '#8B7355';
+        ctx.fillRect(center.x - size/2, center.y - size/2, size, size);
+        ctx.fillStyle = wall.type === 'steel' ? '#4a5a6a' : '#a0522d';
+        ctx.fillRect(center.x - size/3, center.y - size/3, size/3, size/3);
+        ctx.fillRect(center.x + size/6, center.y + size/6, size/3, size/3);
     });
 }
 
-function initEvents() {
-    canvas.addEventListener('mousedown', (e) => {
-        isDragging = true;
-        dragStartX = e.clientX;
-        dragStartY = e.clientY;
-        lastPanX = panX;
-        lastPanY = panY;
-        canvas.style.cursor = 'grabbing';
-    });
+function drawAdjacentCellsHighlight() {
+    if (!window.isMyTankSelected || !window.gameState?.myTank) return;
     
-    window.addEventListener('mousemove', (e) => {
-        if (!isDragging) return;
-        const dx = e.clientX - dragStartX;
-        const dy = e.clientY - dragStartY;
-        panX = lastPanX + dx;
-        panY = lastPanY + dy;
-        drawGame();
-    });
+    const player = window.gameState.myTank;
+    const neighbors = [
+        { q: player.q, r: player.r - 1 },
+        { q: player.q + 1, r: player.r - 1 },
+        { q: player.q + 1, r: player.r },
+        { q: player.q, r: player.r + 1 },
+        { q: player.q - 1, r: player.r + 1 },
+        { q: player.q - 1, r: player.r }
+    ];
     
-    window.addEventListener('mouseup', () => {
-        isDragging = false;
-        canvas.style.cursor = 'grab';
-    });
-    
-    canvas.addEventListener('wheel', (e) => {
-        e.preventDefault();
-        hexSize = Math.min(60, Math.max(20, hexSize + (e.deltaY > 0 ? -2 : 2)));
-        drawGame();
-    });
-    
-    canvas.addEventListener('click', onCanvasClick);
-    canvas.style.cursor = 'grab';
-}
-
-function isAdjacentHex(q1, r1, q2, r2) {
-    return HEX_DIRECTIONS.some(dir => 
-        q1 + dir.q === q2 && r1 + dir.r === r2
-    );
-}
-
-function onCanvasClick(e) {
-    if (isDragging) return;
-    
-    const rect = canvas.getBoundingClientRect();
-    const scaleX = canvas.width / rect.width;
-    const scaleY = canvas.height / rect.height;
-    
-    const canvasX = (e.clientX - rect.left) * scaleX;
-    const canvasY = (e.clientY - rect.top) * scaleY;
-    const hex = pixelToHex(canvasX, canvasY);
-    
-    if (!gameState) return;
-    
-    const cellExists = gameState.cells?.some(cell => cell.q === hex.q && cell.r === hex.r);
-    if (!cellExists) return;
-    
-    const player = gameState.myTank;
-    const isMyTank = (player.q === hex.q && player.r === hex.r);
-    const adjacent = isAdjacentHex(player.q, player.r, hex.q, hex.r);
-    const hasWall = gameState.walls?.some(w => w.q === hex.q && w.r === hex.r);
-    
-    if (isMyTank) {
-        isMyTankSelected = !isMyTankSelected;
-        selectedTarget = null;
-        if (isMyTankSelected) {
-            showMessage(`✅ Танк выбран. Нажмите на СОСЕДНЮЮ клетку для движения`);
-            document.getElementById('modeStatus').textContent = '🚶 ДВИЖЕНИЕ';
-            document.getElementById('modeStatus').style.color = '#4caf50';
-        } else {
-            showMessage(`🔘 Режим: СТРЕЛЬБА`);
-            document.getElementById('modeStatus').textContent = '🔫 СТРЕЛЬБА';
-            document.getElementById('modeStatus').style.color = '#e94560';
-        }
-        drawGame();
-        return;
-    }
-    
-    if (isMyTankSelected && adjacent && !hasWall) {
-        moveTo(hex.q, hex.r);
-        isMyTankSelected = false;
-        document.getElementById('modeStatus').textContent = '🔫 СТРЕЛЬБА';
-        document.getElementById('modeStatus').style.color = '#e94560';
-        return;
-    }
-    
-    if (isMyTankSelected && hasWall) {
-        showMessage(`🧱 Там стена! Нельзя пройти`);
-        return;
-    }
-    
-    if (!isMyTankSelected) {
-        selectTarget(hex.q, hex.r);
-    } else {
-        showMessage(`⚠️ Нажмите на СОСЕДНЮЮ (подсвеченную) клетку для движения`);
-    }
-}
-
-function selectTarget(q, r) {
-    selectedTarget = { q, r };
-    showMessage(`🎯 Цель: (${q},${r})`);
-    document.getElementById('targetStatus').textContent = `(${q},${r})`;
-    drawGame();
-}
-
-function moveTo(q, r) {
-    if (!gameState || gameState.gameOver) return;
-    socket.emit('move', { q, r });
-}
-
-function addProjectileAnimation(fromQ, fromR, toQ, toR, onComplete) {
-    const from = hexToPixel(fromQ, fromR);
-    const to = hexToPixel(toQ, toR);
-    
-    projectiles.push({
-        fromX: from.x, fromY: from.y,
-        toX: to.x, toY: to.y,
-        progress: 0,
-        speed: PROJECTILE_SPEED,
-        onComplete: onComplete
-    });
-}
-
-function addProjectileAnimationFromServer(fromQ, fromR, toQ, toR, onComplete) {
-    const from = hexToPixel(fromQ, fromR);
-    const to = hexToPixel(toQ, toR);
-    
-    aiShotsQueue.push({
-        fromX: from.x, fromY: from.y,
-        toX: to.x, toY: to.y,
-        progress: 0,
-        speed: PROJECTILE_SPEED,
-        onComplete: onComplete
-    });
-}
-
-function shoot() {
-    if (!selectedTarget) {
-        showMessage('⚠️ Сначала выберите цель (нажмите на клетку)');
-        return;
-    }
-    if (!gameState || gameState.gameOver) return;
-    if (projectiles.length > 0) {
-        showMessage('⏳ Дождитесь окончания выстрела');
-        return;
-    }
-    
-    const fromQ = gameState.myTank.q;
-    const fromR = gameState.myTank.r;
-    const toQ = selectedTarget.q;
-    const toR = selectedTarget.r;
-    
-    showMessage(`🔫 Выстрел по (${toQ},${toR})`);
-    
-    const target = selectedTarget;
-    selectedTarget = null;
-    document.getElementById('targetStatus').textContent = 'нет';
-    
-    addProjectileAnimation(fromQ, fromR, toQ, toR, () => {
-        socket.emit('shoot', { q: target.q, r: target.r });
-    });
-}
-
-function connect() {
-    socket = io();
-    
-    socket.on('connect', () => {
-        console.log('Connected to server');
-        document.getElementById('loadingScreen').style.display = 'none';
-        document.getElementById('gameScreen').style.display = 'flex';
-        socket.emit('joinGame', { userId, userName });
-        showMessage('✅ Добро пожаловать! Кликните на СВОЙ ТАНК для движения');
-        drawGame();
-    });
-    
-    socket.on('gameState', (state) => {
-        console.log('Game state received, cells:', state.cells?.length);
-        gameState = state;
-        updateStats();
-        updateCooldown(state.lastActionTime);
-        drawGame();
-    });
-    
-    socket.on('shootResult', (result) => {
-        console.log('🔫 Shoot result:', result); // Отладка
+    neighbors.forEach(neighbor => {
+        const cellExists = window.gameState.cells?.some(cell => cell.q === neighbor.q && cell.r === neighbor.r);
+        if (!cellExists) return;
         
-        // Если это выстрел НЕ от игрока (противник или союзник)
-        if (result.attackerId && gameState && result.attackerId !== gameState.myTank?.id) {
-            // Добавляем анимацию снаряда от стреляющего к цели
-            if (result.fromQ !== undefined && result.fromR !== undefined) {
-                const targetQ = result.targetQ !== undefined ? result.targetQ : result.targetX;
-                const targetR = result.targetR !== undefined ? result.targetR : result.targetY;
-                
-                addProjectileAnimationFromServer(
-                    result.fromQ, result.fromR,
-                    targetQ, targetR,
-                    () => {
-                        // После полёта снаряда показываем эффект
-                        if (result.hit && result.targetX !== undefined) {
-                            addExplosionEffect(result.targetX, result.targetY);
-                        } else if (!result.hit && result.success) {
-                            addMissEffect(result.targetQ, result.targetR);
-                        }
-                        if (result.wallDestroyed) {
-                            addWallBreakEffect(result.targetQ, result.targetR);
-                        }
-                        showMessage(result.message);
-                        drawGame();
-                    }
-                );
-                drawGame();
-                return;
+        const hasWall = window.gameState.walls?.some(w => w.q === neighbor.q && w.r === neighbor.r);
+        const isOccupied = [...(window.gameState.enemies || []), ...(window.gameState.allies || [])].some(
+            u => u.active !== false && u.q === neighbor.q && u.r === neighbor.r
+        );
+        
+        if (!hasWall && !isOccupied) {
+            const center = window.hexToPixel(neighbor.q, neighbor.r);
+            ctx.beginPath();
+            for (let i = 0; i < 6; i++) {
+                const angle = Math.PI / 3 * i - Math.PI / 6;
+                const x = center.x + (hexSize + 3) * Math.cos(angle);
+                const y = center.y + (hexSize + 3) * Math.sin(angle);
+                if (i === 0) ctx.moveTo(x, y);
+                else ctx.lineTo(x, y);
             }
+            ctx.closePath();
+            ctx.fillStyle = 'rgba(76, 175, 80, 0.35)';
+            ctx.fill();
+            ctx.strokeStyle = '#4caf50';
+            ctx.lineWidth = 2;
+            ctx.stroke();
         }
-        
-        // Для выстрелов игрока — показываем эффект сразу (анимация уже была)
-        if (result.hit && result.targetX !== undefined) {
-            addExplosionEffect(result.targetX, result.targetY || result.targetR);
-        } else if (!result.hit && result.success && result.targetQ !== undefined) {
-            addMissEffect(result.targetQ, result.targetR);
-        }
-        if (result.wallDestroyed) {
-            addWallBreakEffect(result.targetQ, result.targetR);
-        }
-        showMessage(result.message);
-        drawGame();
-    });
-    
-    socket.on('actionAccepted', (data) => {
-        if (data.type === 'move') {
-            showMessage(`✅ Перемещение выполнено`);
-        }
-        drawGame();
-    });
-    
-    socket.on('gameEnded', (data) => {
-        document.getElementById('gameScreen').style.display = 'none';
-        document.getElementById('gameOverScreen').style.display = 'flex';
-        document.getElementById('winnerText').innerHTML = `${data.winner}<br>🏅 Убийств: ${data.kills || 0}`;
-    });
-    
-    socket.on('error', (data) => {
-        showMessage('❌ ' + data.message);
     });
 }
 
-function updateStats() {
-    if (!gameState) return;
-    document.getElementById('hpValue').textContent = `${gameState.myTank.hp}/${gameState.myTank.maxHp}`;
-    document.getElementById('killsValue').textContent = gameState.myTank.kills || 0;
-    document.getElementById('enemiesValue').textContent = gameState.enemies?.length || 0;
-}
-
-function updateCooldown(lastActionTime) {
-    const COOLDOWN_TIME = 2000;
-    
-    function update() {
-        const now = Date.now();
-        const elapsed = now - lastActionTime;
-        
-        if (elapsed < COOLDOWN_TIME) {
-            const remaining = COOLDOWN_TIME - elapsed;
-            const percent = (remaining / COOLDOWN_TIME) * 100;
-            const seconds = Math.ceil(remaining / 1000);
-            const fill = document.getElementById('cooldownFill');
-            const text = document.getElementById('cooldownText');
-            if (fill) fill.style.width = `${percent}%`;
-            if (text) text.textContent = `${seconds}с`;
-            setTimeout(update, 100);
-        } else {
-            const fill = document.getElementById('cooldownFill');
-            const text = document.getElementById('cooldownText');
-            if (fill) fill.style.width = `0%`;
-            if (text) text.textContent = `готов`;
-        }
-    }
-    update();
-}
-
-function startAnimation() {
-    function animate() {
-        if (gameState) {
-            drawGame();
-            updateProjectiles();
-            updateParticles();
-            drawParticles();
-        }
-        animationFrame = requestAnimationFrame(animate);
-    }
-    animate();
-}
-
-function updateProjectiles() {
-    let needRedraw = false;
-    
-    projectiles = projectiles.filter(proj => {
-        proj.progress += proj.speed;
-        needRedraw = true;
-        
-        if (proj.progress >= 1) {
-            if (proj.onComplete) {
-                proj.onComplete();
-            }
-            return false;
-        }
-        return true;
-    });
-    
-    aiShotsQueue = aiShotsQueue.filter(proj => {
-        proj.progress += proj.speed;
-        needRedraw = true;
-        
-        if (proj.progress >= 1) {
-            if (proj.onComplete) {
-                proj.onComplete();
-            }
-            return false;
-        }
-        return true;
-    });
-    
-    if (needRedraw) {
-        drawGame();
-    }
-}
-
-function drawProjectiles() {
-    // Снаряды игрока (жёлтые)
-    projectiles.forEach(proj => {
-        const t = proj.progress;
-        const easeInOut = t < 0.5 ? 2 * t * t : 1 - Math.pow(-2 * t + 2, 2) / 2;
-        const x = proj.fromX + (proj.toX - proj.fromX) * easeInOut;
-        const y = proj.fromY + (proj.toY - proj.fromY) * easeInOut;
-        
-        ctx.beginPath();
-        ctx.arc(x, y, hexSize * 0.15, 0, Math.PI * 2);
-        ctx.fillStyle = '#ffeb3b';
-        ctx.fill();
-        ctx.beginPath();
-        ctx.arc(x, y, hexSize * 0.08, 0, Math.PI * 2);
-        ctx.fillStyle = '#ff9800';
-        ctx.fill();
-    });
-    
-    // Снаряды противников (красные)
-    aiShotsQueue.forEach(proj => {
-        const t = proj.progress;
-        const easeInOut = t < 0.5 ? 2 * t * t : 1 - Math.pow(-2 * t + 2, 2) / 2;
-        const x = proj.fromX + (proj.toX - proj.fromX) * easeInOut;
-        const y = proj.fromY + (proj.toY - proj.fromY) * easeInOut;
-        
-        ctx.beginPath();
-        ctx.arc(x, y, hexSize * 0.15, 0, Math.PI * 2);
-        ctx.fillStyle = '#ff4444';
-        ctx.fill();
-        ctx.beginPath();
-        ctx.arc(x, y, hexSize * 0.08, 0, Math.PI * 2);
-        ctx.fillStyle = '#cc0000';
-        ctx.fill();
-        
-        ctx.beginPath();
-        ctx.arc(x - 3, y - 3, hexSize * 0.05, 0, Math.PI * 2);
-        ctx.fillStyle = 'rgba(255, 0, 0, 0.5)';
-        ctx.fill();
-    });
-}
-
-function drawGame() {
-    if (!gameState) {
+window.drawGame = function() {
+    if (!window.gameState) {
         if (ctx) {
             ctx.fillStyle = '#1a1a2a';
             ctx.fillRect(0, 0, canvas.width, canvas.height);
@@ -584,45 +194,24 @@ function drawGame() {
         return;
     }
     
-    if (!ctx) return;
-    
     ctx.clearRect(0, 0, canvas.width, canvas.height);
     ctx.fillStyle = '#1a1a2a';
     ctx.fillRect(0, 0, canvas.width, canvas.height);
     
-    const cells = gameState.cells || [];
-    
+    const cells = window.gameState.cells || [];
     cells.forEach(cell => {
-        const q = cell.q;
-        const r = cell.r;
-        const isVisible = gameState.visibleCells?.some(vc => vc.q === q && vc.r === r);
-        
-        let color;
-        if (isVisible) {
-            const isBase = gameState.bases?.some(b => b.q === q && b.r === r);
-            if (isBase) {
-                color = '#DAA520';
-            } else if (cell.terrain === 'swamp') {
-                color = '#5a4a3a';
-            } else if (cell.terrain === 'forest') {
-                color = '#2d5a2d';
-            } else if (cell.terrain === 'arena') {
-                color = '#8B7355';
-            } else {
-                color = (Math.abs(q + r) % 2 === 0) ? '#2d6a4f' : '#1b5e3f';
-            }
-        } else {
-            color = '#2a3a2a';
-        }
-        
-        drawHex(q, r, color, isVisible);
+        const isVisible = window.gameState.visibleCells?.some(vc => vc.q === cell.q && vc.r === cell.r);
+        let color = isVisible ? '#2d6a4f' : '#2a3a2a';
+        if (isVisible && window.gameState.bases?.some(b => b.q === cell.q && b.r === cell.r)) color = '#DAA520';
+        drawHex(cell.q, cell.r, color, isVisible);
     });
     
     drawWalls();
+    drawAdjacentCellsHighlight();
     
-    if (gameState.smokeEffects) {
-        gameState.smokeEffects.forEach(smoke => {
-            const center = hexToPixel(smoke.q, smoke.r);
+    if (window.gameState.smokeEffects) {
+        window.gameState.smokeEffects.forEach(smoke => {
+            const center = window.hexToPixel(smoke.q, smoke.r);
             ctx.fillStyle = 'rgba(80, 80, 80, 0.7)';
             ctx.beginPath();
             ctx.arc(center.x, center.y, hexSize * 0.5, 0, Math.PI * 2);
@@ -630,28 +219,15 @@ function drawGame() {
         });
     }
     
-    if (gameState.allies) {
-        gameState.allies.forEach(ally => {
-            if (ally.active !== false) {
-                drawTank(ally.q, ally.r, ally.color, ally.name, ally.hp, ally.maxHp, false, ally.direction);
-            }
-        });
-    }
+    window.gameState.allies?.forEach(ally => drawTank(ally.q, ally.r, ally.color, ally.name, ally.hp, ally.maxHp, false, ally.direction));
+    window.gameState.enemies?.forEach(enemy => drawTank(enemy.q, enemy.r, enemy.color, enemy.name, enemy.hp, enemy.maxHp, false, enemy.direction));
     
-    if (gameState.enemies) {
-        gameState.enemies.forEach(enemy => {
-            if (enemy.active !== false) {
-                drawTank(enemy.q, enemy.r, enemy.color, enemy.name, enemy.hp, enemy.maxHp, false, enemy.direction);
-            }
-        });
-    }
-    
-    if (gameState.myTank) {
-        drawTank(gameState.myTank.q, gameState.myTank.r, gameState.myTank.color, 'Я', 
-                 gameState.myTank.hp, gameState.myTank.maxHp, true, gameState.myTank.direction);
+    if (window.gameState.myTank) {
+        drawTank(window.gameState.myTank.q, window.gameState.myTank.r, window.gameState.myTank.color, 'Я', 
+                 window.gameState.myTank.hp, window.gameState.myTank.maxHp, true, window.gameState.myTank.direction);
         
-        if (isMyTankSelected) {
-            const center = hexToPixel(gameState.myTank.q, gameState.myTank.r);
+        if (window.isMyTankSelected) {
+            const center = window.hexToPixel(window.gameState.myTank.q, window.gameState.myTank.r);
             ctx.strokeStyle = '#4caf50';
             ctx.lineWidth = 3;
             ctx.beginPath();
@@ -665,36 +241,10 @@ function drawGame() {
             ctx.closePath();
             ctx.stroke();
         }
-        
-        if (isMyTankSelected) {
-            HEX_DIRECTIONS.forEach(dir => {
-                const q = gameState.myTank.q + dir.q;
-                const r = gameState.myTank.r + dir.r;
-                const cellExists = cells.some(cell => cell.q === q && cell.r === r);
-                if (cellExists) {
-                    const hasWall = gameState.walls?.some(w => w.q === q && w.r === r);
-                    if (!hasWall) {
-                        const center = hexToPixel(q, r);
-                        ctx.fillStyle = 'rgba(76, 175, 80, 0.3)';
-                        ctx.beginPath();
-                        for (let i = 0; i < 6; i++) {
-                            const angle = Math.PI / 3 * i - Math.PI / 6;
-                            const x = center.x + hexSize * Math.cos(angle);
-                            const y = center.y + hexSize * Math.sin(angle);
-                            if (i === 0) ctx.moveTo(x, y);
-                            else ctx.lineTo(x, y);
-                        }
-                        ctx.fill();
-                        ctx.strokeStyle = '#4caf50';
-                        ctx.stroke();
-                    }
-                }
-            });
-        }
     }
     
-    if (selectedTarget) {
-        const center = hexToPixel(selectedTarget.q, selectedTarget.r);
+    if (window.selectedTarget) {
+        const center = window.hexToPixel(window.selectedTarget.q, window.selectedTarget.r);
         ctx.strokeStyle = '#ffeb3b';
         ctx.lineWidth = 3;
         ctx.beginPath();
@@ -709,197 +259,248 @@ function drawGame() {
         ctx.stroke();
     }
     
-    drawProjectiles();
+    window.drawProjectiles();
+    window.drawParticles();
+};
+
+function onCanvasClick(e) {
+   if (isDragging) return;
+   
+   const rect = canvas.getBoundingClientRect();
+   const scaleX = canvas.width / rect.width;
+   const scaleY = canvas.height / rect.height;
+   const canvasX = (e.clientX - rect.left) * scaleX;
+   const canvasY = (e.clientY - rect.top) * scaleY;
+   const hex = pixelToHex(canvasX, canvasY);
+   
+   if (!window.gameState) return;
+   const cellExists = window.gameState.cells?.some(cell => cell.q === hex.q && cell.r === hex.r);
+   if (!cellExists) return;
+   
+   const player = window.gameState.myTank;
+   const isMyTank = (player.q === hex.q && player.r === hex.r);
+   const adjacent = HEX_DIRECTIONS.some(dir => player.q + dir.q === hex.q && player.r + dir.r === hex.r);
+   const hasWall = window.gameState.walls?.some(w => w.q === hex.q && w.r === hex.r);
+   
+   if (isMyTank) {
+       window.isMyTankSelected = !window.isMyTankSelected;
+       window.selectedTarget = null;
+       if (window.isMyTankSelected) {
+           window.showMessage(`✅ Танк выбран. Нажмите на ЗЕЛЁНУЮ клетку для движения`);
+           document.getElementById('modeStatus').textContent = '🚶 ДВИЖЕНИЕ';
+           document.getElementById('modeStatus').style.color = '#4caf50';
+       } else {
+           window.showMessage(`🔘 Режим: СТРЕЛЬБА`);
+           document.getElementById('modeStatus').textContent = '🔫 СТРЕЛЬБА';
+           document.getElementById('modeStatus').style.color = '#e94560';
+       }
+       window.drawGame();
+       return;
+   }
+   
+   if (window.isMyTankSelected && adjacent && !hasWall) {
+       const dq = hex.q - player.q;
+       const dr = hex.r - player.r;
+       let dir = 'right';
+       
+       if (dq === 0 && dr === -1) dir = 'up';
+       else if (dq === 1 && dr === -1) dir = 'up-right';
+       else if (dq === 1 && dr === 0) dir = 'right';
+       else if (dq === 0 && dr === 1) dir = 'down';
+       else if (dq === -1 && dr === 1) dir = 'down-left';
+       else if (dq === -1 && dr === 0) dir = 'left';
+       else if (dq === -1 && dr === -1) dir = 'up-left';
+       else if (dq === 1 && dr === 1) dir = 'down-right';
+       
+       if (window.gameState.myTank) {
+           window.gameState.myTank.direction = dir;
+       }
+       
+       window.move(dir);
+       window.isMyTankSelected = false;
+       document.getElementById('modeStatus').textContent = '🔫 СТРЕЛЬБА';
+       document.getElementById('modeStatus').style.color = '#e94560';
+       return;
+   }
+   
+   if (window.isMyTankSelected && hasWall) {
+       window.showMessage(`🧱 Там стена! Нельзя пройти`);
+       return;
+   }
+   
+   if (!window.isMyTankSelected) {
+       window.selectTarget(hex.q, hex.r);
+   } else {
+       window.showMessage(`⚠️ Нажмите на ЗЕЛЁНУЮ подсвеченную клетку для движения`);
+   }
 }
 
-function drawWalls() {
-    if (!gameState || !gameState.walls) return;
+function initEvents() {
+   canvas.addEventListener('mousedown', (e) => {
+       isDragging = true;
+       dragStartX = e.clientX;
+       dragStartY = e.clientY;
+       lastPanX = panX;
+       lastPanY = panY;
+       canvas.style.cursor = 'grabbing';
+   });
+   
+   window.addEventListener('mousemove', (e) => {
+       if (!isDragging) return;
+       const dx = e.clientX - dragStartX;
+       const dy = e.clientY - dragStartY;
+       panX = lastPanX + dx;
+       panY = lastPanY + dy;
+       window.panX = panX;
+       window.panY = panY;
+       window.drawGame();
+   });
+   
+   window.addEventListener('mouseup', () => {
+       isDragging = false;
+       canvas.style.cursor = 'grab';
+   });
+   
+   canvas.addEventListener('wheel', (e) => {
+       e.preventDefault();
+       hexSize = Math.min(60, Math.max(20, hexSize + (e.deltaY > 0 ? -2 : 2)));
+       window.hexSize = hexSize;
+       window.drawGame();
+   });
+   
+   // ИСПРАВЛЕННАЯ СТРОКА:
+   canvas.addEventListener('click', onCanvasClick);
+   canvas.style.cursor = 'grab';
+}
+
+function initButtons() {
+    document.querySelectorAll('.hex-controls button[data-dir]').forEach(btn => {
+        btn.addEventListener('click', () => window.move(btn.getAttribute('data-dir')));
+    });
     
-    gameState.walls.forEach(wall => {
-        const center = hexToPixel(wall.q, wall.r);
-        const size = hexSize * 0.6;
-        
-        ctx.fillStyle = wall.type === 'steel' ? '#708090' : '#8B7355';
-        ctx.fillRect(center.x - size/2, center.y - size/2, size, size);
-        
-        ctx.fillStyle = wall.type === 'steel' ? '#4a5a6a' : '#a0522d';
-        ctx.fillRect(center.x - size/3, center.y - size/3, size/3, size/3);
-        ctx.fillRect(center.x + size/6, center.y + size/6, size/3, size/3);
-        
-        if (wall.type === 'steel' && wall.hp > 1) {
-            ctx.fillStyle = '#ff5252';
-            ctx.fillRect(center.x - size/2, center.y - size/2 - 5, size, 3);
-            ctx.fillStyle = '#4caf50';
-            ctx.fillRect(center.x - size/2, center.y - size/2 - 5, size * (wall.hp / 3), 3);
+    document.getElementById('shootBtn')?.addEventListener('click', () => window.shoot());
+    document.getElementById('resetBtn')?.addEventListener('click', () => window.resetGame());
+    document.getElementById('newGameBtn')?.addEventListener('click', () => window.resetGame());
+    
+    document.getElementById('zoomInBtn')?.addEventListener('click', () => {
+        hexSize = Math.min(60, hexSize + 2);
+        window.hexSize = hexSize;
+        window.drawGame();
+    });
+    document.getElementById('zoomOutBtn')?.addEventListener('click', () => {
+        hexSize = Math.max(20, hexSize - 2);
+        window.hexSize = hexSize;
+        window.drawGame();
+    });
+    document.getElementById('resetZoomBtn')?.addEventListener('click', () => {
+        hexSize = 30;
+        window.hexSize = hexSize;
+        window.drawGame();
+    });
+}
+
+function resizeCanvas() {
+    const container = canvas.parentElement;
+    if (!container) return;
+    const size = Math.min(container.clientWidth, window.innerHeight * 0.7);
+    canvas.width = size;
+    canvas.height = size;
+    hexSize = Math.min(canvas.width / 10, 35);
+    window.hexSize = hexSize;
+}
+
+function forceRedraw() {
+    setTimeout(() => {
+        resizeCanvas();
+        if (window.gameState) {
+            window.drawGame();
+        } else {
+            if (ctx) {
+                ctx.fillStyle = '#1a1a2a';
+                ctx.fillRect(0, 0, canvas.width, canvas.height);
+                ctx.fillStyle = 'white';
+                ctx.font = '20px Arial';
+                ctx.textAlign = 'center';
+                ctx.fillText('Подключение...', canvas.width/2, canvas.height/2);
+            }
         }
-    });
+    }, 50);
 }
 
-function drawTank(q, r, color, name, hp, maxHp, isPlayer, direction = 'right') {
-    const center = hexToPixel(q, r);
-    const size = hexSize * 0.7;
+function animate() {
+    if (window.gameState) {
+        window.updateProjectiles();
+        window.updateParticles();
+        window.drawGame();
+    }
+    animationFrame = requestAnimationFrame(animate);
+}
+
+async function init() {
+    console.log('Initializing game...');
     
-    ctx.save();
-    ctx.translate(center.x, center.y);
+    canvas = document.getElementById('gameCanvas');
+    ctx = canvas.getContext('2d');
+    canvas.width = 600;
+    canvas.height = 600;
     
-    const rotations = {
-        'up': -Math.PI/2,
-        'up-right': -Math.PI/6,
-        'right': 0,
-        'down-right': Math.PI/6,
-        'down': Math.PI/2,
-        'down-left': Math.PI*5/6,
-        'left': Math.PI
-    };
-    ctx.rotate(rotations[direction] || 0);
+    window.ctx = ctx;
+    window.canvas = canvas;
     
-    ctx.fillStyle = color;
-    ctx.shadowBlur = isPlayer ? 8 : 2;
-    ctx.fillRect(-size/2, -size/2, size, size);
-    
-    ctx.fillStyle = '#444';
-    ctx.fillRect(-size/2 - 3, -size/2, 3, size);
-    ctx.fillRect(size/2, -size/2, 3, size);
-    
-    ctx.fillStyle = isPlayer ? '#ffb300' : '#c62828';
-    ctx.beginPath();
-    ctx.arc(0, 0, size * 0.4, 0, Math.PI * 2);
-    ctx.fill();
-    
-    ctx.fillStyle = '#555';
-    ctx.fillRect(size/2 - 5, -size*0.08, size*0.4, size*0.16);
-    
-    ctx.restore();
-    
-    const hpPercent = hp / maxHp;
-    ctx.fillStyle = '#ff5252';
-    ctx.fillRect(center.x - size/2, center.y - size/2 - 8, size, 4);
-    ctx.fillStyle = '#4caf50';
-    ctx.fillRect(center.x - size/2, center.y - size/2 - 8, size * hpPercent, 4);
-    
+    ctx.fillStyle = '#1a1a2a';
+    ctx.fillRect(0, 0, canvas.width, canvas.height);
     ctx.fillStyle = 'white';
-    ctx.font = `bold ${Math.max(10, hexSize / 3)}px Arial`;
-    ctx.shadowBlur = 0;
-    let displayName = name === '???' ? '???' : (name.length > 8 ? name.slice(0, 6) + '..' : name);
-    ctx.fillText(displayName, center.x - 18, center.y - size/2 - 12);
-    ctx.fillStyle = '#ffeb3b';
-    ctx.font = `bold ${Math.max(8, hexSize / 4)}px Arial`;
-    ctx.fillText(`${hp}`, center.x - 8, center.y - size/2 - 2);
-}
-
-function addExplosionEffect(q, r) {
-    const center = hexToPixel(q, r);
-    for (let i = 0; i < 25; i++) {
-        particles.push({
-            x: center.x, y: center.y,
-            vx: (Math.random() - 0.5) * 10,
-            vy: (Math.random() - 0.5) * 8 - 3,
-            life: 1,
-            size: Math.random() * 6 + 2,
-            color: `hsl(${Math.random() * 60 + 20}, 100%, 55%)`
-        });
-    }
+    ctx.font = '20px Arial';
+    ctx.textAlign = 'center';
+    ctx.fillText('Загрузка...', canvas.width/2, canvas.height/2);
     
-    for (let i = 0; i < 10; i++) {
-        smokeParticles.push({
-            x: center.x, y: center.y,
-            vx: (Math.random() - 0.5) * 2,
-            vy: (Math.random() - 0.5) * 2 - 1,
-            life: 1,
-            size: Math.random() * 8 + 4,
-            color: `rgba(80, 80, 80, ${Math.random() * 0.5 + 0.3})`
-        });
-    }
-}
-
-function addMissEffect(q, r) {
-    const center = hexToPixel(q, r);
-    for (let i = 0; i < 10; i++) {
-        particles.push({
-            x: center.x, y: center.y,
-            vx: (Math.random() - 0.5) * 6,
-            vy: (Math.random() - 0.5) * 6,
-            life: 0.6,
-            size: Math.random() * 4 + 1,
-            color: `rgba(200, 200, 100, 0.8)`
-        });
-    }
-}
-
-function addWallBreakEffect(q, r) {
-    const center = hexToPixel(q, r);
-    for (let i = 0; i < 15; i++) {
-        particles.push({
-            x: center.x, y: center.y,
-            vx: (Math.random() - 0.5) * 8,
-            vy: (Math.random() - 0.5) * 8 - 2,
-            life: 0.8,
-            size: Math.random() * 5 + 2,
-            color: `hsl(${Math.random() * 40 + 20}, 80%, 50%)`
-        });
-    }
-}
-
-function updateParticles() {
-    particles = particles.filter(p => {
-        p.x += p.vx;
-        p.y += p.vy;
-        p.life -= 0.02;
-        return p.life > 0;
-    });
-    smokeParticles = smokeParticles.filter(p => {
-        p.x += p.vx;
-        p.y += p.vy;
-        p.life -= 0.008;
-        return p.life > 0;
-    });
-}
-
-function drawParticles() {
-    particles.forEach(p => {
-        ctx.fillStyle = p.color;
-        ctx.globalAlpha = p.life;
-        ctx.fillRect(p.x - p.size/2, p.y - p.size/2, p.size, p.size);
-    });
-    smokeParticles.forEach(p => {
-        ctx.fillStyle = p.color;
-        ctx.globalAlpha = p.life;
-        ctx.beginPath();
-        ctx.arc(p.x, p.y, p.size, 0, Math.PI * 2);
-        ctx.fill();
-    });
-    ctx.globalAlpha = 1;
-}
-
-function showMessage(text) {
-    const container = document.getElementById('messages');
-    const msg = document.createElement('div');
-    msg.className = 'message';
-    msg.textContent = text;
-    container.appendChild(msg);
-    setTimeout(() => msg.remove(), 3000);
-}
-
-function resetGame() {
-    socket.emit('reset');
-    selectedTarget = null;
-    isMyTankSelected = false;
-    particles = [];
-    smokeParticles = [];
-    projectiles = [];
-    aiShotsQueue = [];
-    document.getElementById('gameOverScreen').style.display = 'none';
+    await window.soundManager.init();
+    
+    window.socketClient = new window.SocketClient(
+        (state) => {
+            window.gameState = state;
+            window.updateStats();
+            window.updateCooldown(state.lastActionTime);
+            resizeCanvas();
+            window.drawGame();
+        },
+        (result) => {
+            window.handleShootResult(result);
+        },
+        (msg) => window.showMessage(msg),
+        (data) => {
+            document.getElementById('gameScreen').style.display = 'none';
+            document.getElementById('gameOverScreen').style.display = 'flex';
+            document.getElementById('winnerText').innerHTML = `${data.winner}<br>🏅 Убийств: ${data.kills || 0}`;
+        }
+    );
+    
+    const userId = 'player_' + Math.random().toString(36).substr(2, 6);
+    const userName = 'Командир';
+    
+    window.socketClient.connect(userId, userName);
+    
+    resizeCanvas();
+    initEvents();
+    initButtons();
+    animate();
+    forceRedraw();
+    
+    document.getElementById('loadingScreen').style.display = 'none';
     document.getElementById('gameScreen').style.display = 'flex';
-    showMessage('🔄 Новая битва!');
-    drawGame();
+    
+    setTimeout(() => {
+        resizeCanvas();
+        if (window.gameState) window.drawGame();
+    }, 100);
+    
+    window.showMessage('✅ Добро пожаловать! Кликните на СВОЙ ТАНК для движения');
+    
+    window.addEventListener('resize', () => {
+        resizeCanvas();
+        window.drawGame();
+    });
 }
 
-function getHexDistance(q1, r1, q2, r2) {
-    const dq = Math.abs(q1 - q2);
-    const dr = Math.abs(r1 - r2);
-    const ds = Math.abs((-q1 - r1) - (-q2 - r2));
-    return (dq + dr + ds) / 2;
-}
-
-// Запуск
+window.init = init;
 init();

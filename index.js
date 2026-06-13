@@ -18,13 +18,25 @@ app.use(express.static(path.join(__dirname, 'public')));
 let currentGame = null;
 let botInterval = null;
 
+// Сохраняем io в глобальную переменную для доступа из TankGame
+global.io = io;
+
 function createNewGame() {
     if (botInterval) clearInterval(botInterval);
     currentGame = new TankGame();
     
     botInterval = setInterval(() => {
         if (currentGame && !currentGame.isGameOver() && currentGame.hasPlayers()) {
-            currentGame.botAction();
+            // Сохраняем результат ботов, чтобы отправить клиентам
+            const botResults = currentGame.botAction();
+            
+            // Отправляем результаты выстрелов ботов
+            if (botResults && botResults.length > 0) {
+                botResults.forEach(result => {
+                    io.emit('shootResult', result);
+                });
+            }
+            
             const player = currentGame.getFirstPlayer();
             if (player) {
                 const state = currentGame.getStateForPlayer(player.id);
@@ -90,6 +102,11 @@ io.on('connection', (socket) => {
         if (!player) return;
         
         const result = currentGame.shootAtCell(player.id, data.q, data.r);
+        // Добавляем координаты стреляющего для анимации
+        result.fromQ = player.q;
+        result.fromR = player.r;
+        result.attackerId = player.id;
+        
         socket.emit('shootResult', result);
         if (result.success) {
             const state = currentGame.getStateForPlayer(player.id);

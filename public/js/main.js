@@ -8,6 +8,10 @@ let canvas, ctx;
 let particles = [];
 let smokeParticles = [];
 
+// Анимация снарядов
+let projectiles = [];
+let aiShotsQueue = [];
+
 // Панорамирование
 let panX = 0, panY = 0;
 let isDragging = false;
@@ -19,6 +23,9 @@ let userName = 'Командир';
 
 // Размер гекса (zoom)
 let hexSize = 30;
+
+// Скорость полёта снаряда
+const PROJECTILE_SPEED = 0.025;
 
 const HEX_DIRECTIONS = [
     { q: 0, r: -1, name: 'up' },
@@ -144,7 +151,6 @@ function init() {
     canvas.width = 600;
     canvas.height = 600;
     
-    // Начальная позиция камеры
     panX = 0;
     panY = 0;
     hexSize = 30;
@@ -308,17 +314,57 @@ function moveTo(q, r) {
     socket.emit('move', { q, r });
 }
 
+function addProjectileAnimation(fromQ, fromR, toQ, toR, onComplete) {
+    const from = hexToPixel(fromQ, fromR);
+    const to = hexToPixel(toQ, toR);
+    
+    projectiles.push({
+        fromX: from.x, fromY: from.y,
+        toX: to.x, toY: to.y,
+        progress: 0,
+        speed: PROJECTILE_SPEED,
+        onComplete: onComplete
+    });
+}
+
+function addProjectileAnimationFromServer(fromQ, fromR, toQ, toR, onComplete) {
+    const from = hexToPixel(fromQ, fromR);
+    const to = hexToPixel(toQ, toR);
+    
+    aiShotsQueue.push({
+        fromX: from.x, fromY: from.y,
+        toX: to.x, toY: to.y,
+        progress: 0,
+        speed: PROJECTILE_SPEED,
+        onComplete: onComplete
+    });
+}
+
 function shoot() {
     if (!selectedTarget) {
         showMessage('⚠️ Сначала выберите цель (нажмите на клетку)');
         return;
     }
     if (!gameState || gameState.gameOver) return;
+    if (projectiles.length > 0) {
+        showMessage('⏳ Дождитесь окончания выстрела');
+        return;
+    }
     
-    socket.emit('shoot', { q: selectedTarget.q, r: selectedTarget.r });
-    showMessage(`🔫 Выстрел по (${selectedTarget.q},${selectedTarget.r})`);
+    const fromQ = gameState.myTank.q;
+    const fromR = gameState.myTank.r;
+    const toQ = selectedTarget.q;
+    const toR = selectedTarget.r;
+    
+    showMessage(`🔫 Выстрел по (${toQ},${toR})`);
+    
+    const target = selectedTarget;
     selectedTarget = null;
     document.getElementById('targetStatus').textContent = 'нет';
+    
+    addProjectileAnimation(fromQ, fromR, toQ, toR, () => {
+        socket.emit('shoot', { q: target.q, r: target.r });
+    });
 }
 
 function connect() {
@@ -338,28 +384,57 @@ function connect() {
         gameState = state;
         updateStats();
         updateCooldown(state.lastActionTime);
-        // НИЧЕГО НЕ МЕНЯЕМ - камера остаётся на месте
         drawGame();
     });
     
     socket.on('shootResult', (result) => {
-        showMessage(result.message);
+        console.log('🔫 Shoot result:', result); // Отладка
+        
+        // Если это выстрел НЕ от игрока (противник или союзник)
+        if (result.attackerId && gameState && result.attackerId !== gameState.myTank?.id) {
+            // Добавляем анимацию снаряда от стреляющего к цели
+            if (result.fromQ !== undefined && result.fromR !== undefined) {
+                const targetQ = result.targetQ !== undefined ? result.targetQ : result.targetX;
+                const targetR = result.targetR !== undefined ? result.targetR : result.targetY;
+                
+                addProjectileAnimationFromServer(
+                    result.fromQ, result.fromR,
+                    targetQ, targetR,
+                    () => {
+                        // После полёта снаряда показываем эффект
+                        if (result.hit && result.targetX !== undefined) {
+                            addExplosionEffect(result.targetX, result.targetY);
+                        } else if (!result.hit && result.success) {
+                            addMissEffect(result.targetQ, result.targetR);
+                        }
+                        if (result.wallDestroyed) {
+                            addWallBreakEffect(result.targetQ, result.targetR);
+                        }
+                        showMessage(result.message);
+                        drawGame();
+                    }
+                );
+                drawGame();
+                return;
+            }
+        }
+        
+        // Для выстрелов игрока — показываем эффект сразу (анимация уже была)
         if (result.hit && result.targetX !== undefined) {
             addExplosionEffect(result.targetX, result.targetY || result.targetR);
-        } else if (!result.hit && result.success) {
+        } else if (!result.hit && result.success && result.targetQ !== undefined) {
             addMissEffect(result.targetQ, result.targetR);
         }
         if (result.wallDestroyed) {
             addWallBreakEffect(result.targetQ, result.targetR);
         }
+        showMessage(result.message);
         drawGame();
     });
     
     socket.on('actionAccepted', (data) => {
         if (data.type === 'move') {
             showMessage(`✅ Перемещение выполнено`);
-        } else if (data.type === 'shoot') {
-            showMessage(`✅ Выстрел выполнен`);
         }
         drawGame();
     });
@@ -412,12 +487,88 @@ function startAnimation() {
     function animate() {
         if (gameState) {
             drawGame();
+            updateProjectiles();
             updateParticles();
             drawParticles();
         }
         animationFrame = requestAnimationFrame(animate);
     }
     animate();
+}
+
+function updateProjectiles() {
+    let needRedraw = false;
+    
+    projectiles = projectiles.filter(proj => {
+        proj.progress += proj.speed;
+        needRedraw = true;
+        
+        if (proj.progress >= 1) {
+            if (proj.onComplete) {
+                proj.onComplete();
+            }
+            return false;
+        }
+        return true;
+    });
+    
+    aiShotsQueue = aiShotsQueue.filter(proj => {
+        proj.progress += proj.speed;
+        needRedraw = true;
+        
+        if (proj.progress >= 1) {
+            if (proj.onComplete) {
+                proj.onComplete();
+            }
+            return false;
+        }
+        return true;
+    });
+    
+    if (needRedraw) {
+        drawGame();
+    }
+}
+
+function drawProjectiles() {
+    // Снаряды игрока (жёлтые)
+    projectiles.forEach(proj => {
+        const t = proj.progress;
+        const easeInOut = t < 0.5 ? 2 * t * t : 1 - Math.pow(-2 * t + 2, 2) / 2;
+        const x = proj.fromX + (proj.toX - proj.fromX) * easeInOut;
+        const y = proj.fromY + (proj.toY - proj.fromY) * easeInOut;
+        
+        ctx.beginPath();
+        ctx.arc(x, y, hexSize * 0.15, 0, Math.PI * 2);
+        ctx.fillStyle = '#ffeb3b';
+        ctx.fill();
+        ctx.beginPath();
+        ctx.arc(x, y, hexSize * 0.08, 0, Math.PI * 2);
+        ctx.fillStyle = '#ff9800';
+        ctx.fill();
+    });
+    
+    // Снаряды противников (красные)
+    aiShotsQueue.forEach(proj => {
+        const t = proj.progress;
+        const easeInOut = t < 0.5 ? 2 * t * t : 1 - Math.pow(-2 * t + 2, 2) / 2;
+        const x = proj.fromX + (proj.toX - proj.fromX) * easeInOut;
+        const y = proj.fromY + (proj.toY - proj.fromY) * easeInOut;
+        
+        ctx.beginPath();
+        ctx.arc(x, y, hexSize * 0.15, 0, Math.PI * 2);
+        ctx.fillStyle = '#ff4444';
+        ctx.fill();
+        ctx.beginPath();
+        ctx.arc(x, y, hexSize * 0.08, 0, Math.PI * 2);
+        ctx.fillStyle = '#cc0000';
+        ctx.fill();
+        
+        ctx.beginPath();
+        ctx.arc(x - 3, y - 3, hexSize * 0.05, 0, Math.PI * 2);
+        ctx.fillStyle = 'rgba(255, 0, 0, 0.5)';
+        ctx.fill();
+    });
 }
 
 function drawGame() {
@@ -557,6 +708,8 @@ function drawGame() {
         ctx.closePath();
         ctx.stroke();
     }
+    
+    drawProjectiles();
 }
 
 function drawWalls() {
@@ -733,7 +886,8 @@ function resetGame() {
     isMyTankSelected = false;
     particles = [];
     smokeParticles = [];
-    // НЕ сбрасываем камеру при сбросе игры!
+    projectiles = [];
+    aiShotsQueue = [];
     document.getElementById('gameOverScreen').style.display = 'none';
     document.getElementById('gameScreen').style.display = 'flex';
     showMessage('🔄 Новая битва!');

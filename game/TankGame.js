@@ -2,7 +2,7 @@ const { TankUnit } = require('./TankUnit');
 const { FogOfWar } = require('./FogOfWar');
 const { EffectManager } = require('./EffectManager');
 
-// 6 направлений для гексагональной сетки (кубические координаты)
+// 6 направлений для гексагональной сетки
 const DIRECTIONS = [
     { q: 1, r: 0, s: -1, name: 'right' },
     { q: 1, r: -1, s: 0, name: 'up-right' },
@@ -14,14 +14,13 @@ const DIRECTIONS = [
 
 class TankGame {
     constructor() {
-        this.radius = 7; // Радиус карты (7 даёт 127 гексов, как в Territory of Conquests)
+        this.radius = 7;
         this.gameOver = false;
         this.winner = null;
         this.fogOfWar = new FogOfWar(this.radius);
         this.effectManager = new EffectManager();
         this.lastActionTime = new Map();
         
-        // Карта в виде Map
         this.cells = new Map();
         this.walls = new Map();
         this.players = [];
@@ -35,7 +34,6 @@ class TankGame {
     }
     
     generateMap() {
-        // Генерируем гексагональную карту в форме ромба
         for (let q = -this.radius; q <= this.radius; q++) {
             for (let r = -this.radius; r <= this.radius; r++) {
                 const s = -q - r;
@@ -61,13 +59,9 @@ class TankGame {
     getTerrainType(q, r, s) {
         const dist = Math.max(Math.abs(q), Math.abs(r), Math.abs(s));
         
-        // Центральная зона (пустыня/арена)
         if (dist <= 2) return 'arena';
-        // Болота (замедление)
         if (dist === 3 && (Math.abs(q) === 3 || Math.abs(r) === 3 || Math.abs(s) === 3)) return 'swamp';
-        // Леса (укрытие)
         if (dist === 4) return 'forest';
-        // Горы (непроходимые)
         if (dist === this.radius) return 'mountain';
         return 'plains';
     }
@@ -79,12 +73,11 @@ class TankGame {
     }
     
     initializeBases() {
-        // 4 базы по углам ромба
         const bases = [
-            { q: -this.radius, r: 0, owner: 'enemy' },      // левый угол
-            { q: this.radius, r: 0, owner: 'ally' },        // правый угол
-            { q: 0, r: -this.radius, owner: 'player' },     // верхний угол
-            { q: 0, r: this.radius, owner: 'neutral' }      // нижний угол
+            { q: -this.radius, r: 0, owner: 'enemy' },
+            { q: this.radius, r: 0, owner: 'ally' },
+            { q: 0, r: -this.radius, owner: 'player' },
+            { q: 0, r: this.radius, owner: 'neutral' }
         ];
         
         for (const base of bases) {
@@ -99,13 +92,10 @@ class TankGame {
     }
     
     initializeWalls() {
-        // Стены вокруг баз для защиты
         const baseWalls = [
-            // Вокруг базы игрока (0, -radius)
             { q: 0, r: -this.radius + 1, type: 'steel', hp: 3 },
             { q: 1, r: -this.radius, type: 'steel', hp: 3 },
             { q: -1, r: -this.radius, type: 'steel', hp: 3 },
-            // Вокруг вражеской базы (-radius, 0)
             { q: -this.radius + 1, r: 0, type: 'brick', hp: 1 },
             { q: -this.radius, r: 1, type: 'brick', hp: 1 },
             { q: -this.radius, r: -1, type: 'brick', hp: 1 }
@@ -120,7 +110,6 @@ class TankGame {
     }
     
     initializeUnits() {
-        // Враги на позициях вокруг их базы
         const enemyPositions = [
             { q: -this.radius + 2, r: 1, name: 'Враг-Командир', color: '#e94560', type: 'heavy' },
             { q: -this.radius + 1, r: 2, name: 'Враг-Снайпер', color: '#ff6b6b', type: 'fast' },
@@ -132,7 +121,6 @@ class TankGame {
             new TankUnit(`enemy${i}`, pos.name, 'enemy', pos.q, pos.r, 100, 35, pos.color, pos.type, null, false, 5)
         );
         
-        // Союзники вокруг их базы
         const allyPositions = [
             { q: this.radius - 2, r: -1, name: 'Союзник-Тяжёлый', color: '#2196f3', type: 'heavy' },
             { q: this.radius - 1, r: -2, name: 'Союзник-Стрелковый', color: '#4caf50', type: 'medium' }
@@ -142,7 +130,6 @@ class TankGame {
             new TankUnit(`ally${i}`, pos.name, 'ally', pos.q, pos.r, 100, 35, pos.color, pos.type, null, false, 5)
         );
         
-        // Открываем туман вокруг союзников
         for (let ally of this.allies) {
             this.fogOfWar.revealHexArea(ally.q, ally.r, 3);
         }
@@ -153,14 +140,12 @@ class TankGame {
             return { success: false, reason: "Игра уже началась" };
         }
         
-        // Стартовая позиция игрока — около его базы
         const startPos = { q: 1, r: -this.radius + 2 };
         
         const player = new TankUnit(telegramId, name, 'ally', startPos.q, startPos.r, 120, 40, '#ffd93d', 'player', null, false, 5);
         player.isPlayer = true;
         this.players.push(player);
         
-        // Открываем туман вокруг игрока
         this.fogOfWar.revealHexArea(startPos.q, startPos.r, 4);
         
         console.log(`Игрок добавлен на позицию (${player.q}, ${player.r})`);
@@ -260,7 +245,6 @@ class TankGame {
             
             const cell = this.cells.get(`${point.q},${point.r}`);
             if (cell && cell.terrain === 'forest') {
-                // Лес даёт укрытие — шанс промаха
                 return Math.random() > 0.3;
             }
         }
@@ -304,11 +288,10 @@ class TankGame {
         
         if (this.isWall(targetQ, targetR)) return false;
         
-        // Проверка местности (болото замедляет)
         const targetCell = this.cells.get(`${targetQ},${targetR}`);
         let moveDelay = 0;
         if (targetCell && targetCell.terrain === 'swamp') {
-            moveDelay = 500; // +500ms задержки
+            moveDelay = 500;
         }
         
         const direction = this.getHexDirection(unit.q, unit.r, targetQ, targetR);
@@ -318,7 +301,6 @@ class TankGame {
         this.lastActionTime.set(unitId, Date.now() + moveDelay);
         this.fogOfWar.revealHexArea(targetQ, targetR, 3);
         
-        // Захват территории (если есть база)
         this.checkBaseCapture(unit, targetQ, targetR);
         
         return true;
@@ -327,7 +309,6 @@ class TankGame {
     checkBaseCapture(unit, q, r) {
         const cell = this.cells.get(`${q},${r}`);
         if (cell && cell.hasBase && cell.baseOwner !== unit.team) {
-            // Захват базы (нужно 2 хода подряд)
             if (!cell.captureProgress) cell.captureProgress = 0;
             cell.captureProgress += 50;
             
@@ -363,18 +344,6 @@ class TankGame {
         
         this.lastActionTime.set(attackerId, Date.now());
         
-        if (!target) {
-            const wallDestroyed = this.damageWall(targetQ, targetR);
-            return {
-                success: true,
-                hit: false,
-                wallDestroyed: wallDestroyed,
-                message: wallDestroyed ? "🧱 Стена разрушена!" : "💨 Промах!",
-                targetQ, targetR
-            };
-        }
-        
-        // Укрытие в лесу
         const targetCell = this.cells.get(`${targetQ},${targetR}`);
         let damage = attacker.damage;
         let hitChance = 1.0;
@@ -386,10 +355,29 @@ class TankGame {
                     success: true,
                     hit: false,
                     killed: false,
-                    message: `🌳 Лес укрыл ${target.name}! Промах!`,
-                    targetQ, targetR
+                    message: `🌳 Лес укрыл цель! Промах!`,
+                    targetQ: targetQ,
+                    targetR: targetR,
+                    fromQ: attacker.q,
+                    fromR: attacker.r,
+                    attackerId: attacker.id
                 };
             }
+        }
+        
+        if (!target) {
+            const wallDestroyed = this.damageWall(targetQ, targetR);
+            return {
+                success: true,
+                hit: false,
+                wallDestroyed: wallDestroyed,
+                message: wallDestroyed ? "🧱 Стена разрушена!" : "💨 Промах!",
+                targetQ: targetQ,
+                targetR: targetR,
+                fromQ: attacker.q,
+                fromR: attacker.r,
+                attackerId: attacker.id
+            };
         }
         
         target.hp -= damage;
@@ -404,7 +392,10 @@ class TankGame {
                 killed: true,
                 message: `💀 ${target.name} уничтожен!`,
                 targetX: target.q,
-                targetY: target.r
+                targetY: target.r,
+                fromQ: attacker.q,
+                fromR: attacker.r,
+                attackerId: attacker.id
             };
         }
         
@@ -414,40 +405,57 @@ class TankGame {
             killed: false,
             message: `💥 Попадание в ${target.name}! -${damage} HP`,
             targetX: target.q,
-            targetY: target.r
+            targetY: target.r,
+            fromQ: attacker.q,
+            fromR: attacker.r,
+            attackerId: attacker.id
         };
     }
     
     botAction() {
-        const player = this.getFirstPlayer();
-        if (!player || !player.active) return;
-        
-        for (let enemy of this.enemies) {
-            if (!enemy.active) continue;
-            
-            const cooldown = this.getRemainingCooldown(enemy.id);
-            if (cooldown > 0) continue;
-            
-            const distance = this.hexDistance(enemy.q, enemy.r, player.q, player.r);
-            
-            if (distance <= 5 && Math.random() < 0.45) {
-                this.shootAtCell(enemy.id, player.q, player.r);
-            } else if (Math.random() < 0.35) {
-                const neighbors = this.getNeighbors(enemy.q, enemy.r);
-                const validNeighbors = neighbors.filter(n => {
-                    const occupied = this.getAllUnits().some(u => u.active && u.q === n.q && u.r === n.r);
-                    const hasWall = this.isWall(n.q, n.r);
-                    return !occupied && !hasWall;
-                });
-                
-                if (validNeighbors.length > 0) {
-                    const randomNeighbor = validNeighbors[Math.floor(Math.random() * validNeighbors.length)];
-                    this.moveToCell(enemy.id, randomNeighbor.q, randomNeighbor.r);
-                }
-            }
-        }
-    }
-    
+      const player = this.getFirstPlayer();
+      if (!player || !player.active) return [];
+      
+      const results = []; // Массив для хранения результатов выстрелов
+      
+      for (let enemy of this.enemies) {
+          if (!enemy.active) continue;
+          
+          const cooldown = this.getRemainingCooldown(enemy.id);
+          if (cooldown > 0) continue;
+          
+          const distance = this.hexDistance(enemy.q, enemy.r, player.q, player.r);
+          
+          if (distance <= 5 && Math.random() < 0.45) {
+              // Сохраняем координаты стреляющего
+              const fromQ = enemy.q;
+              const fromR = enemy.r;
+              const result = this.shootAtCell(enemy.id, player.q, player.r);
+              
+              // Добавляем координаты стреляющего в результат
+              if (result) {
+                  result.fromQ = fromQ;
+                  result.fromR = fromR;
+                  result.attackerId = enemy.id;
+                  results.push(result);
+              }
+          } else if (Math.random() < 0.35) {
+              const neighbors = this.getNeighbors(enemy.q, enemy.r);
+              const validNeighbors = neighbors.filter(n => {
+                  const occupied = this.getAllUnits().some(u => u.active && u.q === n.q && u.r === n.r);
+                  const hasWall = this.isWall(n.q, n.r);
+                  return !occupied && !hasWall;
+              });
+              
+              if (validNeighbors.length > 0) {
+                  const randomNeighbor = validNeighbors[Math.floor(Math.random() * validNeighbors.length)];
+                  this.moveToCell(enemy.id, randomNeighbor.q, randomNeighbor.r);
+              }
+          }
+      }
+      
+      return results; // Возвращаем массив результатов выстрелов
+  }
     getStateForPlayer(playerId) {
         const player = this.players.find(p => p.id === playerId);
         if (!player) return null;
@@ -496,7 +504,6 @@ class TankGame {
     }
     
     checkWinner() {
-        // Проверка по захвату баз
         let playerBaseCaptured = true;
         let enemyBaseCaptured = true;
         
@@ -519,7 +526,6 @@ class TankGame {
             return true;
         }
         
-        // Проверка по уничтожению всех врагов
         const aliveEnemies = this.enemies.filter(e => e.active);
         const aliveAllies = this.allies.filter(a => a.active);
         const alivePlayer = this.players.filter(p => p.active);

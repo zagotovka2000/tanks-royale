@@ -59,11 +59,11 @@ body {
 }
 
 .game-wrapper {
-   max-width: 100%;
+   width: 100%;
    height: 100%;
    display: flex;
    flex-direction: column;
-   position: relative;
+   gap: 10px;
 }
 
 .stats-panel {
@@ -71,7 +71,6 @@ body {
    backdrop-filter: blur(10px);
    border-radius: 20px;
    padding: 12px 20px;
-   margin-bottom: 10px;
    display: flex;
    justify-content: space-between;
    color: white;
@@ -86,10 +85,6 @@ body {
    align-items: center;
    gap: 8px;
    font-size: 14px;
-}
-
-.stat-icon {
-   font-size: 18px;
 }
 
 .cooldown-bar {
@@ -107,22 +102,29 @@ body {
    transition: width 0.1s linear;
 }
 
+/* ===== 3D КОНТЕЙНЕР ===== */
 .canvas-container {
    flex: 1;
-   display: flex;
-   justify-content: center;
-   align-items: center;
    position: relative;
+   width: 100%;
+   min-height: 400px;
+   background: #1a2a3a;
+   border-radius: 16px;
    overflow: hidden;
-   touch-action: pinch-zoom;
+   box-shadow: 0 10px 40px rgba(0, 0, 0, 0.5);
 }
 
-canvas {
-   border-radius: 16px;
-   box-shadow: 0 10px 40px rgba(0, 0, 0, 0.5);
-   cursor: crosshair;
-   transition: transform 0.1s ease-out;
-   transform-origin: center center;
+#canvas3d-container {
+   position: absolute;
+   top: 0;
+   left: 0;
+   width: 100%;
+   height: 100%;
+   cursor: grab;
+}
+
+#canvas3d-container:active {
+   cursor: grabbing;
 }
 
 .controls-panel {
@@ -130,7 +132,6 @@ canvas {
    backdrop-filter: blur(10px);
    border-radius: 60px;
    padding: 12px 20px;
-   margin-top: 10px;
    display: flex;
    justify-content: center;
    gap: 12px;
@@ -138,34 +139,27 @@ canvas {
    z-index: 10;
 }
 
-.control-btn {
-   width: 65px;
-   height: 65px;
-   border-radius: 35px;
+.shoot-btn {
+   width: 100px;
+   height: 60px;
+   border-radius: 30px;
    border: none;
-   font-size: 28px;
-   background: rgba(255, 255, 255, 0.2);
+   font-size: 20px;
+   font-weight: bold;
+   background: #e94560;
    color: white;
    cursor: pointer;
-   transition: all 0.1s;
-   touch-action: manipulation;
-}
-
-.control-btn:active {
-   transform: scale(0.92);
-   background: #e94560;
-}
-
-.shoot-btn {
-   background: #e94560;
-   box-shadow: 0 0 20px rgba(233, 69, 96, 0.5);
-   font-weight: bold;
-   font-size: 22px;
 }
 
 .reset-btn {
+   width: 60px;
+   height: 60px;
+   border-radius: 30px;
+   border: none;
+   font-size: 20px;
    background: #ff9800;
-   font-size: 18px;
+   color: white;
+   cursor: pointer;
 }
 
 .zoom-controls {
@@ -188,7 +182,6 @@ canvas {
    color: white;
    font-size: 24px;
    cursor: pointer;
-   touch-action: manipulation;
 }
 
 .messages {
@@ -214,7 +207,6 @@ canvas {
 
 @keyframes fadeOutUp {
    0% { opacity: 1; transform: translateY(0); }
-   70% { opacity: 1; }
    100% { opacity: 0; transform: translateY(-30px); }
 }
 
@@ -238,13 +230,6 @@ canvas {
    text-align: center;
    color: white;
    max-width: 90%;
-   animation: bounceIn 0.5s;
-}
-
-@keyframes bounceIn {
-   0% { transform: scale(0); opacity: 0; }
-   50% { transform: scale(1.05); }
-   100% { transform: scale(1); opacity: 1; }
 }
 
 .gameover-card h1 {
@@ -267,32 +252,13 @@ canvas {
    border-radius: 30px;
    font-size: 16px;
    cursor: pointer;
-   margin-top: 20px;
 }
 
-@media (max-width: 600px) {
-   .control-btn {
-       width: 55px;
-       height: 55px;
-       font-size: 24px;
-   }
-   
-   .stat {
-       font-size: 11px;
-   }
-   
-   .zoom-btn {
-       width: 38px;
-       height: 38px;
-       font-size: 20px;
-   }
-}
-/* Добавьте в style.css */
 .hex-controls {
    position: fixed;
    bottom: 20px;
    left: 20px;
-   background: rgba(0,0,0,0.85);
+   background: rgba(0, 0, 0, 0.85);
    backdrop-filter: blur(10px);
    border-radius: 80px;
    padding: 15px;
@@ -309,10 +275,9 @@ canvas {
    border-radius: 30px;
    border: none;
    font-size: 24px;
-   background: rgba(255,255,255,0.2);
+   background: rgba(255, 255, 255, 0.2);
    color: white;
    cursor: pointer;
-   transition: 0.1s;
    margin: 2px;
 }
 
@@ -328,9 +293,22 @@ canvas {
 }
 
 @media (max-width: 600px) {
+   .shoot-btn {
+       width: 80px;
+       height: 50px;
+       font-size: 16px;
+   }
+   .stat {
+       font-size: 11px;
+   }
    .hex-controls button {
        width: 45px;
        height: 45px;
        font-size: 18px;
+   }
+   .zoom-btn {
+       width: 38px;
+       height: 38px;
+       font-size: 20px;
    }
 }

@@ -13,7 +13,8 @@
       "https-proxy-agent": "^9.1.0",
       "node-fetch": "^2.7.0",
       "socket.io": "^4.5.0",
-      "socks-proxy-agent": "^6.1.1"
+      "socks-proxy-agent": "^6.1.1",
+      "three": "^0.184.0"
    },
    "devDependencies": {
       "nodemon": "^3.0.1"

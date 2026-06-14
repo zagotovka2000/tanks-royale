@@ -6,9 +6,25 @@ window.aiShotsQueue = [];
 
 const PROJECTILE_SPEED = 0.025;
 
+// Функция для получения 2D координат из гексагональных (для спрайтовых эффектов)
+window.hexToPixel2D = function(q, r) {
+    const hexSize = window.hexSize || 30;
+    const x = hexSize * (Math.sqrt(3) * q + Math.sqrt(3)/2 * r);
+    const y = hexSize * (3/2 * r);
+    // Центрируем относительно canvas (если он еще существует)
+    const canvas = document.getElementById('gameCanvas');
+    if (canvas) {
+        return { x: x + canvas.width/2, y: y + canvas.height/2 };
+    }
+    return { x: x, y: y };
+};
+
+// Для совместимости со старым кодом
+window.hexToPixel = window.hexToPixel2D;
+
 window.addProjectileAnimation = function(fromQ, fromR, toQ, toR, onComplete) {
-    const from = window.hexToPixel(fromQ, fromR);
-    const to = window.hexToPixel(toQ, toR);
+    const from = window.hexToPixel2D(fromQ, fromR);
+    const to = window.hexToPixel2D(toQ, toR);
     
     window.projectiles.push({
         fromX: from.x, fromY: from.y,
@@ -20,8 +36,8 @@ window.addProjectileAnimation = function(fromQ, fromR, toQ, toR, onComplete) {
 };
 
 window.addProjectileAnimationFromServer = function(fromQ, fromR, toQ, toR, onComplete) {
-    const from = window.hexToPixel(fromQ, fromR);
-    const to = window.hexToPixel(toQ, toR);
+    const from = window.hexToPixel2D(fromQ, fromR);
+    const to = window.hexToPixel2D(toQ, toR);
     
     window.aiShotsQueue.push({
         fromX: from.x, fromY: from.y,
@@ -59,7 +75,10 @@ window.updateProjectiles = function() {
 };
 
 window.drawProjectiles = function() {
-    if (!window.ctx) return;
+    // Если есть Canvas, рисуем эффекты поверх 3D
+    const canvas = document.getElementById('gameCanvas');
+    const ctx = canvas ? canvas.getContext('2d') : null;
+    if (!ctx) return;
     
     window.projectiles.forEach(proj => {
         const t = proj.progress;
@@ -67,14 +86,14 @@ window.drawProjectiles = function() {
         const x = proj.fromX + (proj.toX - proj.fromX) * easeInOut;
         const y = proj.fromY + (proj.toY - proj.fromY) * easeInOut;
         
-        window.ctx.beginPath();
-        window.ctx.arc(x, y, window.hexSize * 0.15, 0, Math.PI * 2);
-        window.ctx.fillStyle = '#ffeb3b';
-        window.ctx.fill();
-        window.ctx.beginPath();
-        window.ctx.arc(x, y, window.hexSize * 0.08, 0, Math.PI * 2);
-        window.ctx.fillStyle = '#ff9800';
-        window.ctx.fill();
+        ctx.beginPath();
+        ctx.arc(x, y, window.hexSize * 0.15, 0, Math.PI * 2);
+        ctx.fillStyle = '#ffeb3b';
+        ctx.fill();
+        ctx.beginPath();
+        ctx.arc(x, y, window.hexSize * 0.08, 0, Math.PI * 2);
+        ctx.fillStyle = '#ff9800';
+        ctx.fill();
     });
     
     window.aiShotsQueue.forEach(proj => {
@@ -83,20 +102,23 @@ window.drawProjectiles = function() {
         const x = proj.fromX + (proj.toX - proj.fromX) * easeInOut;
         const y = proj.fromY + (proj.toY - proj.fromY) * easeInOut;
         
-        window.ctx.beginPath();
-        window.ctx.arc(x, y, window.hexSize * 0.15, 0, Math.PI * 2);
-        window.ctx.fillStyle = '#ff4444';
-        window.ctx.fill();
-        window.ctx.beginPath();
-        window.ctx.arc(x, y, window.hexSize * 0.08, 0, Math.PI * 2);
-        window.ctx.fillStyle = '#cc0000';
-        window.ctx.fill();
+        ctx.beginPath();
+        ctx.arc(x, y, window.hexSize * 0.15, 0, Math.PI * 2);
+        ctx.fillStyle = '#ff4444';
+        ctx.fill();
+        ctx.beginPath();
+        ctx.arc(x, y, window.hexSize * 0.08, 0, Math.PI * 2);
+        ctx.fillStyle = '#cc0000';
+        ctx.fill();
     });
 };
 
 window.addExplosionEffect = function(q, r) {
-    if (!window.ctx || !window.hexToPixel) return;
-    const center = window.hexToPixel(q, r);
+    const canvas = document.getElementById('gameCanvas');
+    const ctx = canvas ? canvas.getContext('2d') : null;
+    if (!ctx || !window.hexToPixel2D) return;
+    
+    const center = window.hexToPixel2D(q, r);
     if (window.soundManager) window.soundManager.play('explosion');
     
     for (let i = 0; i < 25; i++) {
@@ -123,8 +145,11 @@ window.addExplosionEffect = function(q, r) {
 };
 
 window.addMissEffect = function(q, r) {
-    if (!window.ctx || !window.hexToPixel) return;
-    const center = window.hexToPixel(q, r);
+    const canvas = document.getElementById('gameCanvas');
+    const ctx = canvas ? canvas.getContext('2d') : null;
+    if (!ctx || !window.hexToPixel2D) return;
+    
+    const center = window.hexToPixel2D(q, r);
     if (window.soundManager) window.soundManager.play('miss');
     
     for (let i = 0; i < 10; i++) {
@@ -140,8 +165,11 @@ window.addMissEffect = function(q, r) {
 };
 
 window.addWallBreakEffect = function(q, r) {
-    if (!window.ctx || !window.hexToPixel) return;
-    const center = window.hexToPixel(q, r);
+    const canvas = document.getElementById('gameCanvas');
+    const ctx = canvas ? canvas.getContext('2d') : null;
+    if (!ctx || !window.hexToPixel2D) return;
+    
+    const center = window.hexToPixel2D(q, r);
     if (window.soundManager) window.soundManager.play('miss');
     
     for (let i = 0; i < 15; i++) {
@@ -172,20 +200,23 @@ window.updateParticles = function() {
 };
 
 window.drawParticles = function() {
-    if (!window.ctx) return;
+    const canvas = document.getElementById('gameCanvas');
+    const ctx = canvas ? canvas.getContext('2d') : null;
+    if (!ctx) return;
+    
     window.particles.forEach(p => {
-        window.ctx.fillStyle = p.color;
-        window.ctx.globalAlpha = p.life;
-        window.ctx.fillRect(p.x - p.size/2, p.y - p.size/2, p.size, p.size);
+        ctx.fillStyle = p.color;
+        ctx.globalAlpha = p.life;
+        ctx.fillRect(p.x - p.size/2, p.y - p.size/2, p.size, p.size);
     });
     window.smokeParticles.forEach(p => {
-        window.ctx.fillStyle = p.color;
-        window.ctx.globalAlpha = p.life;
-        window.ctx.beginPath();
-        window.ctx.arc(p.x, p.y, p.size, 0, Math.PI * 2);
-        window.ctx.fill();
+        ctx.fillStyle = p.color;
+        ctx.globalAlpha = p.life;
+        ctx.beginPath();
+        ctx.arc(p.x, p.y, p.size, 0, Math.PI * 2);
+        ctx.fill();
     });
-    window.ctx.globalAlpha = 1;
+    ctx.globalAlpha = 1;
 };
 
 window.clearAnimations = function() {

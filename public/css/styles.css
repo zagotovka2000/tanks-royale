@@ -102,7 +102,6 @@ body {
    transition: width 0.1s linear;
 }
 
-/* ===== 3D КОНТЕЙНЕР ===== */
 .canvas-container {
    flex: 1;
    position: relative;
@@ -149,6 +148,12 @@ body {
    background: #e94560;
    color: white;
    cursor: pointer;
+   transition: transform 0.1s, background 0.2s;
+}
+
+.shoot-btn:active {
+   transform: scale(0.95);
+   background: #c44569;
 }
 
 .reset-btn {
@@ -160,6 +165,11 @@ body {
    background: #ff9800;
    color: white;
    cursor: pointer;
+   transition: transform 0.1s;
+}
+
+.reset-btn:active {
+   transform: scale(0.95);
 }
 
 .zoom-controls {
@@ -182,6 +192,11 @@ body {
    color: white;
    font-size: 24px;
    cursor: pointer;
+   transition: background 0.2s;
+}
+
+.zoom-btn:active {
+   background: rgba(233, 69, 96, 0.8);
 }
 
 .messages {
@@ -252,6 +267,11 @@ body {
    border-radius: 30px;
    font-size: 16px;
    cursor: pointer;
+   transition: transform 0.1s;
+}
+
+.gameover-card button:active {
+   transform: scale(0.95);
 }
 
 .hex-controls {
@@ -279,6 +299,7 @@ body {
    color: white;
    cursor: pointer;
    margin: 2px;
+   transition: transform 0.1s, background 0.2s;
 }
 
 .hex-controls button:active {

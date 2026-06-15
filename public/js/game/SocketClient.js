@@ -1,4 +1,3 @@
-// public/js/game/SocketClient.js
 class SocketClient {
    constructor(onGameState, onShootResult, onMessage, onGameEnded) {
        this.socket = null;
@@ -6,14 +5,37 @@ class SocketClient {
        this.onShootResult = onShootResult;
        this.onMessage = onMessage;
        this.onGameEnded = onGameEnded;
+       this.reconnectAttempts = 0;
+       this.maxReconnectAttempts = 5;
+       this.reconnectDelay = 1000;
    }
    
    connect(userId, userName) {
-       this.socket = io();
+       this.socket = io({
+           transports: ['websocket', 'polling'],
+           reconnection: true,
+           reconnectionAttempts: this.maxReconnectAttempts,
+           reconnectionDelay: this.reconnectDelay
+       });
        
        this.socket.on('connect', () => {
            console.log('Connected to server');
+           this.reconnectAttempts = 0;
            this.socket.emit('joinGame', { userId, userName });
+       });
+       
+       this.socket.on('connect_error', (error) => {
+           console.error('Connection error:', error);
+           if (this.onMessage) {
+               this.onMessage('❌ Ошибка подключения к серверу');
+           }
+       });
+       
+       this.socket.on('disconnect', () => {
+           console.log('Disconnected from server');
+           if (this.onMessage) {
+               this.onMessage('⚠️ Соединение потеряно. Переподключение...');
+           }
        });
        
        this.socket.on('joined', (data) => {
@@ -44,19 +66,23 @@ class SocketClient {
    }
    
    sendMove(q, r) {
-       if (this.socket) {
+       if (this.socket && this.socket.connected) {
            this.socket.emit('move', { q, r });
+       } else if (this.onMessage) {
+           this.onMessage('❌ Нет соединения с сервером');
        }
    }
    
    sendShoot(q, r) {
-       if (this.socket) {
+       if (this.socket && this.socket.connected) {
            this.socket.emit('shoot', { q, r });
+       } else if (this.onMessage) {
+           this.onMessage('❌ Нет соединения с сервером');
        }
    }
    
    resetGame() {
-       if (this.socket) {
+       if (this.socket && this.socket.connected) {
            this.socket.emit('reset');
        }
    }
@@ -64,6 +90,7 @@ class SocketClient {
    disconnect() {
        if (this.socket) {
            this.socket.disconnect();
+           this.socket = null;
        }
    }
 }

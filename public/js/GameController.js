@@ -8,6 +8,9 @@ class GameController {
        this.moveMode = false;
        this.lastShootTime = 0;
        this.shootCooldown = 2000;
+       this.boundHandlers = new Map();
+       this.throttleDelay = 100;
+       this.lastClickTime = 0;
    }
    
    init() {
@@ -16,25 +19,72 @@ class GameController {
    }
    
    setupEventListeners() {
-       // Клик по 3D контейнеру
        const container = document.getElementById('canvas3d-container');
        if (container) {
-           container.addEventListener('click', (e) => this.onCanvasClick(e));
+           const clickHandler = (e) => this.throttleClick(e);
+           container.addEventListener('click', clickHandler);
+           this.boundHandlers.set('canvasClick', clickHandler);
        }
        
-       // Кнопки управления
-       document.getElementById('shootBtn')?.addEventListener('click', () => this.shoot());
-       document.getElementById('resetBtn')?.addEventListener('click', () => this.resetGame());
+       const shootBtn = document.getElementById('shootBtn');
+       if (shootBtn) {
+           const shootHandler = () => this.shoot();
+           shootBtn.addEventListener('click', shootHandler);
+           this.boundHandlers.set('shoot', shootHandler);
+       }
        
-       // Кнопки движения
+       const resetBtn = document.getElementById('resetBtn');
+       if (resetBtn) {
+           const resetHandler = () => this.resetGame();
+           resetBtn.addEventListener('click', resetHandler);
+           this.boundHandlers.set('reset', resetHandler);
+       }
+       
        document.querySelectorAll('.hex-controls button[data-dir]').forEach(btn => {
-           btn.addEventListener('click', () => this.move(btn.getAttribute('data-dir')));
+           const dir = btn.getAttribute('data-dir');
+           const moveHandler = () => this.move(dir);
+           btn.addEventListener('click', moveHandler);
+           if (!this.boundHandlers.has(`move_${dir}`)) {
+               this.boundHandlers.set(`move_${dir}`, moveHandler);
+           }
        });
        
-       // Зум
-       document.getElementById('zoomInBtn')?.addEventListener('click', () => this.renderer.zoomIn());
-       document.getElementById('zoomOutBtn')?.addEventListener('click', () => this.renderer.zoomOut());
-       document.getElementById('resetZoomBtn')?.addEventListener('click', () => this.renderer.resetZoom());
+       const zoomIn = document.getElementById('zoomInBtn');
+       if (zoomIn) {
+           const handler = () => this.renderer.zoomIn();
+           zoomIn.addEventListener('click', handler);
+           this.boundHandlers.set('zoomIn', handler);
+       }
+       
+       const zoomOut = document.getElementById('zoomOutBtn');
+       if (zoomOut) {
+           const handler = () => this.renderer.zoomOut();
+           zoomOut.addEventListener('click', handler);
+           this.boundHandlers.set('zoomOut', handler);
+       }
+       
+       const resetZoom = document.getElementById('resetZoomBtn');
+       if (resetZoom) {
+           const handler = () => this.renderer.resetZoom();
+           resetZoom.addEventListener('click', handler);
+           this.boundHandlers.set('resetZoom', handler);
+       }
+       
+       const newGameBtn = document.getElementById('newGameBtn');
+       if (newGameBtn) {
+           const handler = () => this.resetGame();
+           newGameBtn.addEventListener('click', handler);
+           this.boundHandlers.set('newGame', handler);
+       }
+   }
+   
+   throttleClick(event) {
+       const now = Date.now();
+       if (now - this.lastClickTime < this.throttleDelay) {
+           return;
+       }
+       this.lastClickTime = now;
+       this.onCanvasClick(event);
    }
    
    updateGameState(state) {
@@ -43,7 +93,6 @@ class GameController {
        this.gameState = state;
        this.updateUI();
        
-       // Буферизированное обновление рендера
        if (this.updateBuffer) {
            this.updateBuffer.scheduleUpdate(state, 'full');
        }
@@ -52,22 +101,21 @@ class GameController {
    updateUI() {
        if (!this.gameState || !this.gameState.myTank) return;
        
-       // Обновляем статистику
-       document.getElementById('hpValue').textContent = 
-           `${this.gameState.myTank.hp}/${this.gameState.myTank.maxHp}`;
-       document.getElementById('killsValue').textContent = 
-           this.gameState.myTank.kills || 0;
-       document.getElementById('enemiesValue').textContent = 
-           this.gameState.enemies?.length || 0;
+       const hpValue = document.getElementById('hpValue');
+       if (hpValue) hpValue.textContent = `${this.gameState.myTank.hp}/${this.gameState.myTank.maxHp}`;
        
-       // Обновляем режим
+       const killsValue = document.getElementById('killsValue');
+       if (killsValue) killsValue.textContent = this.gameState.myTank.kills || 0;
+       
+       const enemiesValue = document.getElementById('enemiesValue');
+       if (enemiesValue) enemiesValue.textContent = this.gameState.enemies?.length || 0;
+       
        const modeStatus = document.getElementById('modeStatus');
        if (modeStatus) {
            modeStatus.textContent = this.moveMode ? '🚶 ДВИЖЕНИЕ' : '🔫 СТРЕЛЬБА';
            modeStatus.style.color = this.moveMode ? '#4caf50' : '#e94560';
        }
        
-       // Обновляем кулдаун
        if (this.gameState.lastActionTime) {
            this.updateCooldown(this.gameState.lastActionTime);
        }
@@ -111,10 +159,9 @@ class GameController {
        
        const myTank = this.gameState.myTank;
        const isMyTank = (myTank.q === hex.q && myTank.r === hex.r);
-       const isAdjacent = HexUtils.areAdjacent(myTank.q, myTank.r, hex.q, hex.r);
+       const isAdjacent = window.HexUtils.areAdjacent(myTank.q, myTank.r, hex.q, hex.r);
        const hasWall = this.gameState.walls?.some(w => w.q === hex.q && w.r === hex.r);
        
-       // Клик по своему танку - переключение режима
        if (isMyTank) {
            this.moveMode = !this.moveMode;
            this.selectedTarget = null;
@@ -125,7 +172,6 @@ class GameController {
            return;
        }
        
-       // Движение
        if (this.moveMode && isAdjacent && !hasWall) {
            this.moveTo(hex.q, hex.r);
            this.moveMode = false;
@@ -133,7 +179,6 @@ class GameController {
            return;
        }
        
-       // Стрельба
        if (!this.moveMode) {
            this.selectTarget(hex.q, hex.r);
        } else if (hasWall) {
@@ -188,7 +233,7 @@ class GameController {
        if (!this.gameState?.myTank || this.gameState.gameOver) return;
        
        const myTank = this.gameState.myTank;
-       const direction = HexUtils.getDirection(myTank.q, myTank.r, q, r);
+       const direction = window.HexUtils.getDirection(myTank.q, myTank.r, q, r);
        
        if (this.gameState.myTank) {
            this.gameState.myTank.direction = direction;
@@ -207,19 +252,21 @@ class GameController {
        const myTank = this.gameState.myTank;
        let targetQ = myTank.q, targetR = myTank.r;
        
-       switch(direction) {
-           case 'up': targetR--; break;
-           case 'up-right': targetQ++; targetR--; break;
-           case 'right': targetQ++; break;
-           case 'down-right': targetQ++; targetR++; break;
-           case 'down': targetR++; break;
-           case 'down-left': targetQ--; targetR++; break;
-           case 'left': targetQ--; break;
-           case 'up-left': targetQ--; targetR--; break;
-           default: return;
-       }
+       const directionMap = {
+           'up': () => targetR--,
+           'up-right': () => { targetQ++; targetR--; },
+           'right': () => targetQ++,
+           'down-right': () => { targetQ++; targetR++; },
+           'down': () => targetR++,
+           'down-left': () => { targetQ--; targetR++; },
+           'left': () => targetQ--,
+           'up-left': () => { targetQ--; targetR--; }
+       };
        
-       // Проверка существования клетки
+       const moveFunc = directionMap[direction];
+       if (moveFunc) moveFunc();
+       else return;
+       
        const cellExists = this.gameState.cells?.some(
            cell => cell.q === targetQ && cell.r === targetR
        );
@@ -229,7 +276,6 @@ class GameController {
            return;
        }
        
-       // Проверка стены
        const hasWall = this.gameState.walls?.some(
            w => w.q === targetQ && w.r === targetR
        );
@@ -239,7 +285,6 @@ class GameController {
            return;
        }
        
-       // Проверка занятости
        const isOccupied = [...(this.gameState.enemies || []), ...(this.gameState.allies || [])]
            .some(u => u.active && u.q === targetQ && u.r === targetR);
        
@@ -248,7 +293,7 @@ class GameController {
            return;
        }
        
-       const directionName = HexUtils.getDirection(myTank.q, myTank.r, targetQ, targetR);
+       const directionName = window.HexUtils.getDirection(myTank.q, myTank.r, targetQ, targetR);
        if (this.gameState.myTank) {
            this.gameState.myTank.direction = directionName;
        }
@@ -278,18 +323,15 @@ class GameController {
        const myTank = this.gameState.myTank;
        const target = this.selectedTarget;
        
-       // Обновляем направление танка
-       const direction = HexUtils.getDirection(myTank.q, myTank.r, target.q, target.r);
+       const direction = window.HexUtils.getDirection(myTank.q, myTank.r, target.q, target.r);
        if (this.gameState.myTank) {
            this.gameState.myTank.direction = direction;
        }
        
-       // Воспроизводим звук выстрела
        if (window.soundManager) {
            window.soundManager.play('shoot');
        }
        
-       // Анимация выстрела
        if (this.renderer) {
            this.renderer.addShotAnimation(
                myTank.q, myTank.r, target.q, target.r,
@@ -317,7 +359,7 @@ class GameController {
            this.showMessage(`💀 ${result.message || 'Уничтожение!'}`);
            if (this.renderer) {
                this.renderer.addExplosionEffect(result.targetX || result.targetQ, 
-                                               result.targetY || result.targetR);
+                                              result.targetY || result.targetR);
            }
        } else if (result.hit) {
            this.showMessage(`💥 ${result.message || 'Попадание!'}`);
@@ -330,7 +372,6 @@ class GameController {
            }
        }
        
-       // Воспроизводим звук попадания/промаха
        if (window.soundManager) {
            if (result.hit) {
                window.soundManager.play('explosion');
@@ -343,10 +384,13 @@ class GameController {
    onGameEnded(data) {
        if (!data) return;
        
-       document.getElementById('gameScreen').style.display = 'none';
-       document.getElementById('gameOverScreen').style.display = 'flex';
-       document.getElementById('winnerText').innerHTML = 
-           `${data.winner}<br>🏅 Убийств: ${data.kills || 0}`;
+       const gameScreen = document.getElementById('gameScreen');
+       const gameOverScreen = document.getElementById('gameOverScreen');
+       const winnerText = document.getElementById('winnerText');
+       
+       if (gameScreen) gameScreen.style.display = 'none';
+       if (gameOverScreen) gameOverScreen.style.display = 'flex';
+       if (winnerText) winnerText.innerHTML = `${data.winner}<br>🏅 Убийств: ${data.kills || 0}`;
        
        this.showMessage(`🏆 Игра окончена! ${data.winner}`);
    }
@@ -360,8 +404,11 @@ class GameController {
        this.moveMode = false;
        this.lastShootTime = 0;
        
-       document.getElementById('gameOverScreen').style.display = 'none';
-       document.getElementById('gameScreen').style.display = 'flex';
+       const gameOverScreen = document.getElementById('gameOverScreen');
+       const gameScreen = document.getElementById('gameScreen');
+       
+       if (gameOverScreen) gameOverScreen.style.display = 'none';
+       if (gameScreen) gameScreen.style.display = 'flex';
        
        const targetStatus = document.getElementById('targetStatus');
        if (targetStatus) targetStatus.textContent = 'нет';
@@ -378,16 +425,47 @@ class GameController {
        msg.textContent = text;
        container.appendChild(msg);
        
-       setTimeout(() => msg.remove(), 3000);
+       setTimeout(() => {
+           if (msg && msg.remove) msg.remove();
+       }, 3000);
    }
    
    dispose() {
+       this.boundHandlers.forEach((handler, name) => {
+           if (name === 'canvasClick') {
+               const container = document.getElementById('canvas3d-container');
+               if (container) container.removeEventListener('click', handler);
+           } else if (name === 'shoot') {
+               const btn = document.getElementById('shootBtn');
+               if (btn) btn.removeEventListener('click', handler);
+           } else if (name === 'reset') {
+               const btn = document.getElementById('resetBtn');
+               if (btn) btn.removeEventListener('click', handler);
+           } else if (name.startsWith('move_')) {
+               const dir = name.replace('move_', '');
+               const btn = document.querySelector(`.hex-controls button[data-dir="${dir}"]`);
+               if (btn) btn.removeEventListener('click', handler);
+           } else if (name === 'zoomIn') {
+               const btn = document.getElementById('zoomInBtn');
+               if (btn) btn.removeEventListener('click', handler);
+           } else if (name === 'zoomOut') {
+               const btn = document.getElementById('zoomOutBtn');
+               if (btn) btn.removeEventListener('click', handler);
+           } else if (name === 'resetZoom') {
+               const btn = document.getElementById('resetZoomBtn');
+               if (btn) btn.removeEventListener('click', handler);
+           } else if (name === 'newGame') {
+               const btn = document.getElementById('newGameBtn');
+               if (btn) btn.removeEventListener('click', handler);
+           }
+       });
+       
+       this.boundHandlers.clear();
+       
        if (this.updateBuffer) {
            this.updateBuffer.clear();
        }
    }
 }
 
-if (typeof window !== 'undefined') {
-   window.GameController = GameController;
-}
+window.GameController = GameController;

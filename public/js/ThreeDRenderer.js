@@ -10,7 +10,13 @@ class ThreeDRenderer {
        this.hexSize = 0.7;
        this.currentHighlight = null;
        this.lastRenderTime = 0;
-       this.renderThrottle = 33; // ~30 FPS для обновлений
+       this.renderThrottle = 33;
+       this.animationFrameId = null;
+       this.boundHandlers = new Map();
+       
+       // Pre-allocate arrays for performance
+       this.tempMatrix = new THREE.Matrix4();
+       this.tempVector = new THREE.Vector3();
        
        this.terrainColors = {
            plains: 0x4a8c3f,
@@ -29,39 +35,49 @@ class ThreeDRenderer {
            return false;
        }
        
-       // Получаем реальные размеры
        const parent = this.container.parentElement;
        const width = parent ? parent.clientWidth : 800;
        const height = parent ? parent.clientHeight : 500;
        
        console.log('ThreeDRenderer initializing with size:', width, 'x', height);
        
-       // Устанавливаем размеры контейнера
        this.container.style.width = '100%';
        this.container.style.height = '100%';
        
-       // Сцена
        this.scene = new THREE.Scene();
        this.scene.background = new THREE.Color(0x1a2a3a);
-       this.scene.fog = new THREE.FogExp2(0x1a2a3a, 0.008); // Туман для оптимизации
+       this.scene.fog = new THREE.FogExp2(0x1a2a3a, 0.008);
        
-       // Камера
        this.camera = new THREE.PerspectiveCamera(45, width / height, 0.1, 1000);
        this.camera.position.set(12, 14, 12);
        this.camera.lookAt(0, 0, 0);
        
-       // Рендерер с оптимизациями
        this.renderer = new THREE.WebGLRenderer({ 
            antialias: true, 
            powerPreference: "high-performance" 
        });
        this.renderer.setSize(width, height);
-       this.renderer.setPixelRatio(window.devicePixelRatio);
+       this.renderer.setPixelRatio(Math.min(window.devicePixelRatio, 2));
        this.renderer.shadowMap.enabled = true;
        this.renderer.shadowMap.type = THREE.PCFSoftShadowMap;
        this.container.appendChild(this.renderer.domElement);
        
-       // Освещение
+       this.setupLighting();
+       this.setupGrid();
+       
+       this.isInitialized = true;
+       
+       const resizeHandler = () => this.onWindowResize();
+       window.addEventListener('resize', resizeHandler);
+       this.boundHandlers.set('resize', resizeHandler);
+       
+       this.animate();
+       
+       console.log('ThreeDRenderer initialized successfully');
+       return true;
+   }
+   
+   setupLighting() {
        const ambientLight = new THREE.AmbientLight(0xffffff, 0.6);
        this.scene.add(ambientLight);
        
@@ -71,6 +87,12 @@ class ThreeDRenderer {
        dirLight.receiveShadow = true;
        dirLight.shadow.mapSize.width = 1024;
        dirLight.shadow.mapSize.height = 1024;
+       dirLight.shadow.camera.near = 0.5;
+       dirLight.shadow.camera.far = 30;
+       dirLight.shadow.camera.left = -10;
+       dirLight.shadow.camera.right = 10;
+       dirLight.shadow.camera.top = 10;
+       dirLight.shadow.camera.bottom = -10;
        this.scene.add(dirLight);
        
        const fillLight = new THREE.PointLight(0x4466cc, 0.3);
@@ -80,22 +102,12 @@ class ThreeDRenderer {
        const backLight = new THREE.PointLight(0xffaa66, 0.2);
        backLight.position.set(-5, 5, -8);
        this.scene.add(backLight);
-       
-       // Сетка для ориентира
+   }
+   
+   setupGrid() {
        const gridHelper = new THREE.GridHelper(25, 20, 0x88aaff, 0x335588);
        gridHelper.position.y = -0.5;
        this.scene.add(gridHelper);
-       
-       this.isInitialized = true;
-       
-       // Запуск анимации
-       this.animate();
-       
-       // Обработка изменения размера окна
-       window.addEventListener('resize', () => this.onWindowResize());
-       
-       console.log('ThreeDRenderer initialized successfully');
-       return true;
    }
    
    onWindowResize() {
@@ -104,13 +116,15 @@ class ThreeDRenderer {
        const width = this.container.clientWidth;
        const height = this.container.clientHeight;
        
-       this.camera.aspect = width / height;
-       this.camera.updateProjectionMatrix();
-       this.renderer.setSize(width, height);
+       if (width > 0 && height > 0) {
+           this.camera.aspect = width / height;
+           this.camera.updateProjectionMatrix();
+           this.renderer.setSize(width, height);
+       }
    }
    
    hexTo3DPosition(q, r) {
-       return HexUtils.to3DPosition(q, r, this.hexSize);
+       return window.HexUtils.to3DPosition(q, r, this.hexSize);
    }
    
    createHexagon(q, r, color) {
@@ -133,33 +147,22 @@ class ThreeDRenderer {
    }
    
    drawMap(gameState) {
-       // Проверки безопасности
-       if (!this.isInitialized) {
-           console.warn('drawMap: Renderer not initialized');
-           return false;
-       }
-       
-       if (!gameState) {
-           console.warn('drawMap: No gameState provided');
-           return false;
-       }
-       
-       if (!gameState.cells || !Array.isArray(gameState.cells)) {
-           console.warn('drawMap: Invalid gameState.cells', gameState.cells);
+       if (!this.isInitialized || !gameState || !gameState.cells) {
            return false;
        }
        
        console.log(`Drawing map with ${gameState.cells.length} cells`);
        
-       // Удаляем старые меши
+       // Remove old meshes
        this.hexMeshes.forEach(mesh => {
            if (mesh && this.scene) {
                this.scene.remove(mesh);
+               this.disposeMesh(mesh);
            }
        });
        this.hexMeshes.clear();
        
-       // Создаем новые меши
+       // Create new meshes
        let createdCount = 0;
        gameState.cells.forEach(cell => {
            if (!cell || typeof cell.q === 'undefined' || typeof cell.r === 'undefined') {
@@ -187,7 +190,6 @@ class ThreeDRenderer {
    createTankModel(color) {
        const group = new THREE.Group();
        
-       // Тело танка
        const bodyGeo = new THREE.BoxGeometry(0.6, 0.2, 0.7);
        const bodyMat = new THREE.MeshStandardMaterial({ color: color, metalness: 0.6, roughness: 0.3 });
        const body = new THREE.Mesh(bodyGeo, bodyMat);
@@ -196,7 +198,6 @@ class ThreeDRenderer {
        body.receiveShadow = true;
        group.add(body);
        
-       // Башня
        const turretGeo = new THREE.CylinderGeometry(0.45, 0.5, 0.18, 8);
        const turretMat = new THREE.MeshStandardMaterial({ color: color, metalness: 0.7, roughness: 0.2 });
        const turret = new THREE.Mesh(turretGeo, turretMat);
@@ -204,7 +205,6 @@ class ThreeDRenderer {
        turret.castShadow = true;
        group.add(turret);
        
-       // Ствол
        const barrelGeo = new THREE.CylinderGeometry(0.07, 0.09, 0.55, 6);
        const barrelMat = new THREE.MeshStandardMaterial({ color: 0x555555, metalness: 0.8 });
        const barrel = new THREE.Mesh(barrelGeo, barrelMat);
@@ -213,7 +213,6 @@ class ThreeDRenderer {
        barrel.castShadow = true;
        group.add(barrel);
        
-       // Гусеницы (детали)
        const trackGeo = new THREE.BoxGeometry(0.7, 0.1, 0.2);
        const trackMat = new THREE.MeshStandardMaterial({ color: 0x333333, metalness: 0.3 });
        const leftTrack = new THREE.Mesh(trackGeo, trackMat);
@@ -229,132 +228,114 @@ class ThreeDRenderer {
        return group;
    }
    
+   getTankRotation(direction) {
+       const rotations = {
+           'right': 0,
+           'up-right': -Math.PI / 6,
+           'up': -Math.PI / 2,
+           'up-left': -Math.PI * 2/3,
+           'left': Math.PI,
+           'down-left': Math.PI * 2/3,
+           'down': Math.PI / 2,
+           'down-right': Math.PI / 6
+       };
+       return rotations[direction] || 0;
+   }
+   
+   updateTankPosition(unit) {
+       const mesh = this.tankMeshes.get(unit.id);
+       if (!mesh) return;
+       
+       const pos = this.hexTo3DPosition(unit.q, unit.r);
+       mesh.position.set(pos.x, 0.08, pos.z);
+       mesh.rotation.y = this.getTankRotation(unit.direction);
+   }
+   
+   createTankMesh(unit, isPlayer) {
+       let color = 0xe94560;
+       if (isPlayer) color = 0x4caf50;
+       else if (unit.team === 'ally') color = 0x2196f3;
+       
+       const tank = this.createTankModel(color);
+       const pos = this.hexTo3DPosition(unit.q, unit.r);
+       tank.position.set(pos.x, 0.08, pos.z);
+       tank.rotation.y = this.getTankRotation(unit.direction);
+       
+       this.scene.add(tank);
+       this.tankMeshes.set(unit.id, tank);
+   }
+   
    updateTanks(gameState) {
-       if (!this.isInitialized) {
-           console.warn('updateTanks: Renderer not initialized');
-           return false;
-       }
+       if (!this.isInitialized || !gameState) return false;
        
-       if (!gameState) {
-           console.warn('updateTanks: No gameState provided');
-           return false;
-       }
-       
-       // Throttle обновлений
        const now = Date.now();
        if (now - this.lastRenderTime < this.renderThrottle) {
            return false;
        }
        this.lastRenderTime = now;
        
-       // Удаляем старые танки
-       this.tankMeshes.forEach((mesh, id) => {
-           if (mesh && this.scene) {
-               this.scene.remove(mesh);
-               // Очищаем ресурсы
-               if (mesh.geometry) mesh.geometry.dispose();
-               if (mesh.material) mesh.material.dispose();
+       // Collect all current units
+       const currentUnits = new Map();
+       
+       if (gameState.myTank) {
+           currentUnits.set(gameState.myTank.id, { unit: gameState.myTank, isPlayer: true });
+       }
+       
+       if (gameState.allies) {
+           gameState.allies.forEach(ally => {
+               currentUnits.set(ally.id, { unit: ally, isPlayer: false });
+           });
+       }
+       
+       if (gameState.enemies) {
+           gameState.enemies.forEach(enemy => {
+               currentUnits.set(enemy.id, { unit: enemy, isPlayer: false });
+           });
+       }
+       
+       // Update existing or create new tanks
+       const existingIds = new Set(this.tankMeshes.keys());
+       
+       currentUnits.forEach((value, id) => {
+           existingIds.delete(id);
+           
+           if (this.tankMeshes.has(id)) {
+               this.updateTankPosition(value.unit);
+           } else {
+               this.createTankMesh(value.unit, value.isPlayer);
            }
        });
-       this.tankMeshes.clear();
        
-       // Добавляем новые танки
-       let addedCount = 0;
-       
-       const addTank = (unit, isPlayer) => {
-           if (!unit || !unit.active) return;
-           
-           let color = 0xe94560; // Враги по умолчанию
-           if (isPlayer) color = 0x4caf50;
-           else if (unit.team === 'ally') color = 0x2196f3;
-           else if (unit.team === 'enemy') color = 0xe94560;
-           
-           const tank = this.createTankModel(color);
-           const pos = this.hexTo3DPosition(unit.q, unit.r);
-           tank.position.set(pos.x, 0.08, pos.z);
-           
-           // Поворот танка в зависимости от направления
-           let rotation = 0;
-           switch(unit.direction) {
-               case 'right': rotation = 0; break;
-               case 'up-right': rotation = -Math.PI / 6; break;
-               case 'up': rotation = -Math.PI / 2; break;
-               case 'up-left': rotation = -Math.PI * 2/3; break;
-               case 'left': rotation = Math.PI; break;
-               case 'down-left': rotation = Math.PI * 2/3; break;
-               case 'down': rotation = Math.PI / 2; break;
-               case 'down-right': rotation = Math.PI / 6; break;
-               default: rotation = 0;
+       // Remove tanks that no longer exist
+       existingIds.forEach(id => {
+           const mesh = this.tankMeshes.get(id);
+           if (mesh) {
+               this.scene.remove(mesh);
+               this.disposeMesh(mesh);
+               this.tankMeshes.delete(id);
            }
-           tank.rotation.y = rotation;
-           
-           this.scene.add(tank);
-           this.tankMeshes.set(unit.id, tank);
-           addedCount++;
-       };
-       
-       if (gameState.myTank) addTank(gameState.myTank, true);
-       if (gameState.allies) gameState.allies.forEach(a => addTank(a, false));
-       if (gameState.enemies) gameState.enemies.forEach(e => addTank(e, false));
-       
-       if (addedCount > 0) {
-           console.log(`Updated ${addedCount} tanks`);
-       }
+       });
        
        return true;
    }
    
-   updateChangedTanks(gameState) {
-       // Дифференциальное обновление - только изменившиеся танки
-       if (!this.isInitialized || !gameState) return;
-       
-       const updateUnit = (unit, isPlayer) => {
-           if (!unit) return;
-           
-           const existingMesh = this.tankMeshes.get(unit.id);
-           if (existingMesh) {
-               // Обновляем позицию существующего танка
-               const pos = this.hexTo3DPosition(unit.q, unit.r);
-               existingMesh.position.set(pos.x, 0.08, pos.z);
-               
-               // Обновляем поворот
-               let rotation = 0;
-               switch(unit.direction) {
-                   case 'right': rotation = 0; break;
-                   case 'up': rotation = -Math.PI / 2; break;
-                   case 'left': rotation = Math.PI; break;
-                   case 'down': rotation = Math.PI / 2; break;
-                   case 'up-right': rotation = -Math.PI / 6; break;
-                   case 'down-right': rotation = Math.PI / 6; break;
-                   case 'up-left': rotation = -Math.PI * 2/3; break;
-                   case 'down-left': rotation = Math.PI * 2/3; break;
-               }
-               existingMesh.rotation.y = rotation;
-           } else {
-               // Создаем новый танк
-               let color = 0xe94560;
-               if (isPlayer) color = 0x4caf50;
-               else if (unit.team === 'ally') color = 0x2196f3;
-               
-               const tank = this.createTankModel(color);
-               const pos = this.hexTo3DPosition(unit.q, unit.r);
-               tank.position.set(pos.x, 0.08, pos.z);
-               this.scene.add(tank);
-               this.tankMeshes.set(unit.id, tank);
-           }
-       };
-       
-       if (gameState.myTank) updateUnit(gameState.myTank, true);
-       if (gameState.allies) gameState.allies.forEach(a => updateUnit(a, false));
-       if (gameState.enemies) gameState.enemies.forEach(e => updateUnit(e, false));
+   disposeMesh(mesh) {
+       if (mesh.isGroup) {
+           mesh.children.forEach(child => {
+               if (child.geometry) child.geometry.dispose();
+               if (child.material) child.material.dispose();
+           });
+       } else {
+           if (mesh.geometry) mesh.geometry.dispose();
+           if (mesh.material) mesh.material.dispose();
+       }
    }
    
    highlightHex(q, r, color) {
        if (this.currentHighlight) {
            this.scene.remove(this.currentHighlight);
-           if (this.currentHighlight.geometry) {
-               this.currentHighlight.geometry.dispose();
-           }
+           this.disposeMesh(this.currentHighlight);
+           this.currentHighlight = null;
        }
        
        const center = this.hexTo3DPosition(q, r);
@@ -368,7 +349,7 @@ class ThreeDRenderer {
        setTimeout(() => {
            if (this.currentHighlight === highlight) {
                this.scene.remove(highlight);
-               if (highlight.geometry) highlight.geometry.dispose();
+               this.disposeMesh(highlight);
                this.currentHighlight = null;
            }
        }, 2000);
@@ -412,7 +393,6 @@ class ThreeDRenderer {
    addExplosionEffect(q, r) {
        const center = this.hexTo3DPosition(q, r);
        
-       // Взрывная вспышка
        const geometry = new THREE.SphereGeometry(0.45, 8, 8);
        const material = new THREE.MeshStandardMaterial({ color: 0xff6600, emissive: 0xff4400 });
        const flash = new THREE.Mesh(geometry, material);
@@ -425,7 +405,6 @@ class ThreeDRenderer {
            material.dispose();
        }, 150);
        
-       // Частицы дыма
        for (let i = 0; i < 8; i++) {
            setTimeout(() => {
                const smokeGeo = new THREE.SphereGeometry(0.15, 4, 4);
@@ -486,24 +465,32 @@ class ThreeDRenderer {
    
    animate() {
        if (!this.isInitialized) return;
-       requestAnimationFrame(() => this.animate());
-       this.renderer.render(this.scene, this.camera);
+       this.animationFrameId = requestAnimationFrame(() => this.animate());
+       if (this.renderer && this.scene && this.camera) {
+           this.renderer.render(this.scene, this.camera);
+       }
    }
    
    dispose() {
-       // Очистка ресурсов
-       this.hexMeshes.forEach(mesh => {
-           if (mesh.geometry) mesh.geometry.dispose();
-           if (mesh.material) mesh.material.dispose();
+       if (this.animationFrameId) {
+           cancelAnimationFrame(this.animationFrameId);
+       }
+       
+       this.boundHandlers.forEach((handler, name) => {
+           window.removeEventListener(name, handler);
        });
-       this.tankMeshes.forEach(mesh => {
-           if (mesh.geometry) mesh.geometry.dispose();
-           if (mesh.material) mesh.material.dispose();
-       });
-       this.renderer.dispose();
+       this.boundHandlers.clear();
+       
+       this.hexMeshes.forEach(mesh => this.disposeMesh(mesh));
+       this.tankMeshes.forEach(mesh => this.disposeMesh(mesh));
+       
+       this.hexMeshes.clear();
+       this.tankMeshes.clear();
+       
+       if (this.renderer) {
+           this.renderer.dispose();
+       }
    }
 }
 
-if (typeof window !== 'undefined') {
-   window.ThreeDRenderer = ThreeDRenderer;
-}
+window.ThreeDRenderer = ThreeDRenderer;

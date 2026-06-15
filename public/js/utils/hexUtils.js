@@ -1,5 +1,5 @@
 // Единая работа с гексагональными координатами
-const HexUtils = {
+window.HexUtils = {
    directions: [
        { q: 0, r: -1, name: 'up' },
        { q: 1, r: -1, name: 'up-right' },
@@ -9,11 +9,26 @@ const HexUtils = {
        { q: -1, r: 0, name: 'left' }
    ],
    
+   // Кэш для расстояний
+   distanceCache: new Map(),
+   
    // Вычисление расстояния между гексами
    distance(q1, r1, q2, r2) {
+       const key = `${q1},${r1},${q2},${r2}`;
+       if (this.distanceCache.has(key)) {
+           return this.distanceCache.get(key);
+       }
+       
        const s1 = -q1 - r1;
        const s2 = -q2 - r2;
-       return (Math.abs(q1 - q2) + Math.abs(r1 - r2) + Math.abs(s1 - s2)) / 2;
+       const dist = (Math.abs(q1 - q2) + Math.abs(r1 - r2) + Math.abs(s1 - s2)) / 2;
+       
+       // Ограничиваем размер кэша
+       if (this.distanceCache.size < 1000) {
+           this.distanceCache.set(key, dist);
+       }
+       
+       return dist;
    },
    
    // Получить направление движения
@@ -24,7 +39,7 @@ const HexUtils = {
        return dir ? dir.name : 'right';
    },
    
-   // Проверка смежности
+   // Проверка смежности (с кэшем)
    areAdjacent(q1, r1, q2, r2) {
        return this.distance(q1, r1, q2, r2) === 1;
    },
@@ -42,9 +57,10 @@ const HexUtils = {
        const x = (q + r/2) * hexSize * 1.8;
        const z = r * hexSize * 1.6;
        return { x: x, y: 0, z: z };
+   },
+   
+   // Очистка кэша
+   clearCache() {
+       this.distanceCache.clear();
    }
 };
-
-if (typeof module !== 'undefined' && module.exports) {
-   module.exports = { HexUtils };
-}

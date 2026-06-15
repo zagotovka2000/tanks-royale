@@ -1,8 +1,9 @@
-// public/js/game/sounds.js
 class SoundManager {
    constructor() {
        this.sounds = {};
        this.initialized = false;
+       this.enabled = true;
+       this.volume = 0.5;
    }
    
    async init() {
@@ -16,61 +17,92 @@ class SoundManager {
            };
            
            let loadedCount = 0;
+           const loadPromises = [];
            
            for (const [name, url] of Object.entries(soundFiles)) {
-               try {
-                   await this.loadSound(name, url);
-                   loadedCount++;
-                   console.log(`✅ Загружен звук: ${name} (${url})`);
-               } catch (e) {
-                   console.warn(`⚠️ Не загружен ${name}, пробуем .wav`);
-                   const wavUrl = url.replace('.mp3', '.wav');
-                   try {
-                       await this.loadSound(name, wavUrl);
+               loadPromises.push(
+                   this.loadSound(name, url).then(() => {
                        loadedCount++;
-                       console.log(`✅ Загружен звук: ${name} (${wavUrl})`);
-                   } catch (e2) {
-                       console.warn(`❌ Не удалось загрузить ${name}`);
-                   }
-               }
+                       console.log(`✅ Загружен звук: ${name}`);
+                   }).catch(() => {
+                       console.warn(`⚠️ Не удалось загрузить ${name}`);
+                   })
+               );
            }
+           
+           await Promise.allSettled(loadPromises);
            
            if (loadedCount > 0) {
                this.initialized = true;
                console.log(`🔊 Звуки готовы (${loadedCount}/3)`);
            } else {
                console.warn('⚠️ Звуки не загружены, работаем без звука');
+               this.enabled = false;
            }
        } catch (e) {
            console.error('Ошибка инициализации звуков:', e);
+           this.enabled = false;
        }
    }
    
    loadSound(name, url) {
        return new Promise((resolve, reject) => {
            const audio = new Audio();
-           audio.volume = 0.5;
+           audio.volume = this.volume;
            audio.preload = 'auto';
            
+           const timeout = setTimeout(() => {
+               reject(new Error(`Timeout loading ${name}`));
+           }, 5000);
+           
            audio.addEventListener('canplaythrough', () => {
+               clearTimeout(timeout);
                this.sounds[name] = audio;
                resolve(audio);
-           });
+           }, { once: true });
            
            audio.addEventListener('error', (e) => {
+               clearTimeout(timeout);
                reject(e);
-           });
+           }, { once: true });
            
            audio.src = url;
+           audio.load();
        });
    }
    
    play(soundName) {
-       if (!this.initialized) return;
+       if (!this.initialized || !this.enabled) return;
+       
        const sound = this.sounds[soundName];
        if (!sound) return;
-       sound.currentTime = 0;
-       sound.play().catch(() => {});
+       
+       try {
+           sound.currentTime = 0;
+           const playPromise = sound.play();
+           if (playPromise) {
+               playPromise.catch(() => {
+                   // Игнорируем ошибки автовоспроизведения
+               });
+           }
+       } catch (e) {
+           // Игнорируем
+       }
+   }
+   
+   setVolume(volume) {
+       this.volume = Math.max(0, Math.min(1, volume));
+       Object.values(this.sounds).forEach(sound => {
+           sound.volume = this.volume;
+       });
+   }
+   
+   enable() {
+       this.enabled = true;
+   }
+   
+   disable() {
+       this.enabled = false;
    }
 }
 

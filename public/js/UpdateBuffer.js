@@ -1,18 +1,20 @@
-// Буферизация обновлений для оптимизации рендеринга
 class UpdateBuffer {
    constructor(renderer, delayMs = 50) {
        this.renderer = renderer;
        this.delayMs = delayMs;
        this.pendingUpdate = null;
        this.timeout = null;
-       this.isAnimating = false;
+       this.isProcessing = false;
+       this.updateQueue = [];
+       this.lastUpdateTime = 0;
+       this.minUpdateInterval = 33; // ~30 FPS
    }
    
    scheduleUpdate(state, updateType = 'full') {
        if (!state) return;
        
        this.pendingUpdate = {
-           state: state,
+           state: this.cloneState(state),
            type: updateType,
            timestamp: Date.now()
        };
@@ -22,15 +24,38 @@ class UpdateBuffer {
        }
    }
    
-   flush() {
-       if (!this.pendingUpdate) {
+   cloneState(state) {
+       // Быстрое клонирование только необходимых данных
+       return {
+           cells: state.cells ? [...state.cells] : null,
+           myTank: state.myTank ? { ...state.myTank } : null,
+           allies: state.allies ? state.allies.map(a => ({ ...a })) : null,
+           enemies: state.enemies ? state.enemies.map(e => ({ ...e })) : null,
+           walls: state.walls ? [...state.walls] : null,
+           bases: state.bases ? [...state.bases] : null,
+           smokeEffects: state.smokeEffects ? [...state.smokeEffects] : null
+       };
+   }
+   
+   async flush() {
+       if (!this.pendingUpdate || this.isProcessing) {
            this.timeout = null;
            return;
        }
        
+       const now = Date.now();
+       if (now - this.lastUpdateTime < this.minUpdateInterval) {
+           // Откладываем обновление
+           this.timeout = setTimeout(() => this.flush(), this.minUpdateInterval);
+           return;
+       }
+       
+       this.isProcessing = true;
        const { state, type } = this.pendingUpdate;
        
        try {
+           this.lastUpdateTime = now;
+           
            if (type === 'full' || type === 'map') {
                this.renderer.drawMap(state);
            }
@@ -39,9 +64,8 @@ class UpdateBuffer {
                this.renderer.updateTanks(state);
            }
            
-           // Обновляем только изменившиеся элементы
            if (type === 'partial') {
-               this.renderer.updateChangedTanks(state);
+               this.renderer.updateTanks(state);
            }
        } catch (err) {
            console.error('UpdateBuffer flush error:', err);
@@ -49,9 +73,9 @@ class UpdateBuffer {
        
        this.pendingUpdate = null;
        this.timeout = null;
+       this.isProcessing = false;
    }
    
-   // Немедленное обновление (для важных событий)
    immediate(state, updateType = 'full') {
        if (this.timeout) {
            clearTimeout(this.timeout);
@@ -59,6 +83,7 @@ class UpdateBuffer {
        }
        
        this.pendingUpdate = null;
+       this.lastUpdateTime = Date.now();
        
        if (updateType === 'full' || updateType === 'map') {
            this.renderer.drawMap(state);
@@ -75,9 +100,8 @@ class UpdateBuffer {
            this.timeout = null;
        }
        this.pendingUpdate = null;
+       this.updateQueue = [];
    }
 }
 
-if (typeof window !== 'undefined') {
-   window.UpdateBuffer = UpdateBuffer;
-}
+window.UpdateBuffer = UpdateBuffer;

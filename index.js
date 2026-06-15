@@ -13,8 +13,12 @@ const io = socketIo(server, {
     transports: ['websocket', 'polling']
 });
 
-app.use(express.static(path.join(__dirname, 'public')));
 
+// Убедиться, что статические файлы раздаются правильно
+app.use(express.static(path.join(__dirname, 'public')));
+app.use('/js', express.static(path.join(__dirname, 'public/js')));
+app.use('/css', express.static(path.join(__dirname, 'public/css')));
+app.use('/sounds', express.static(path.join(__dirname, 'public/sounds')));
 let currentGame = null;
 let botInterval = null;
 

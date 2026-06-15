@@ -383,14 +383,21 @@
     
     <div class="messages" id="messages"></div>
 
-    <!-- Скрипты -->
-    <script src="https://cdnjs.cloudflare.com/ajax/libs/three.js/r128/three.min.js"></script>
-    <script src="/socket.io/socket.io.js"></script>
-    <script src="/js/game/sounds.js"></script>
-    <script src="/js/game/animations.js"></script>
-    <script src="/js/game/SocketClient.js"></script>
-    <script src="/js/game/gameLogic.js"></script>
-    <script src="/js/renderers/ThreeDRenderer.js"></script>
-    <script src="/js/main.js"></script>
+   <!-- В конце body, перед закрывающим тегом -->
+<script src="https://cdnjs.cloudflare.com/ajax/libs/three.js/r128/three.min.js"></script>
+<script src="/socket.io/socket.io.js"></script>
+
+<!-- Утилиты -->
+<script src="/js/utils/HexUtils.js"></script>
+
+<!-- Компоненты -->
+<script src="/js/UpdateBuffer.js"></script>
+<script src="/js/ThreeDRenderer.js"></script>
+<script src="/js/GameController.js"></script>
+<script src="/js/game/sounds.js"></script>
+<script src="/js/game/SocketClient.js"></script>
+
+<!-- Главный файл -->
+<script src="/js/main.js"></script>
 </body>
 </html>

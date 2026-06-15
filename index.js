@@ -25,7 +25,7 @@ app.use((req, res, next) => {
     next();
 });
 
-// Статические файлы - ПОРЯДОК ВАЖЕН!
+// Статические файлы
 app.use('/css', express.static(path.join(__dirname, 'public/css'), {
     contentType: 'text/css',
     extensions: ['css']
@@ -37,7 +37,6 @@ app.use('/js', express.static(path.join(__dirname, 'public/js'), {
 app.use('/sounds', express.static(path.join(__dirname, 'public/sounds')));
 app.use(express.static(path.join(__dirname, 'public')));
 
-// Отдача index.html для всех остальных маршрутов (SPA)
 app.get('/', (req, res) => {
     res.sendFile(path.join(__dirname, 'public', 'index.html'));
 });
@@ -47,7 +46,6 @@ let botInterval = null;
 let gameStateVersion = 0;
 const clients = new Map();
 
-// Game state manager
 class GameStateManager {
     constructor() {
         this.updateQueue = [];
@@ -115,6 +113,7 @@ function createNewGame() {
             
             if (botResults && botResults.length > 0) {
                 botResults.forEach(result => {
+                    console.log('Bot shooting:', result);
                     io.emit('shootResult', result);
                 });
             }
@@ -203,14 +202,21 @@ io.on('connection', (socket) => {
     });
     
     socket.on('shoot', (data) => {
+        console.log('🔫 Shoot received:', data);
+        
         if (!currentGame || currentGame.isGameOver()) {
             socket.emit('error', { message: 'Игра окончена' });
             return;
         }
         
-        const player = currentGame.getFirstPlayer();
-        if (!player) {
-            socket.emit('error', { message: 'Игрок не найден' });
+        let player = currentGame.getFirstPlayer();
+        
+        if (data.playerId) {
+            player = currentGame.getAllUnits().find(u => u.id === data.playerId);
+        }
+        
+        if (!player || !player.active) {
+            socket.emit('error', { message: 'Танк не найден' });
             return;
         }
         
@@ -219,11 +225,23 @@ io.on('connection', (socket) => {
         result.fromR = player.r;
         result.attackerId = player.id;
         
-        socket.emit('shootResult', result);
+        console.log('Shoot result:', result);
+        
+        // ВАЖНО: Рассылаем результат ВСЕМ клиентам
+        io.emit('shootResult', result);
         
         if (result.success) {
             stateManager.queueUpdate(currentGame, player.id);
-            socket.emit('actionAccepted', { type: 'shoot' });
+        }
+        
+        if (currentGame.checkWinner()) {
+            clearInterval(botInterval);
+            const p = currentGame.getFirstPlayer();
+            io.emit('gameEnded', {
+                winner: currentGame.getWinner(),
+                kills: p?.kills || 0
+            });
+            botInterval = null;
         }
     });
     
@@ -242,7 +260,6 @@ io.on('connection', (socket) => {
     });
 });
 
-// Cleanup old clients periodically
 setInterval(() => {
     const now = Date.now();
     clients.forEach((client, id) => {

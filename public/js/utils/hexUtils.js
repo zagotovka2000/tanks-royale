@@ -1,4 +1,5 @@
-// Единая работа с гексагональными координатами
+// public/js/utils/HexUtils.js
+
 window.HexUtils = {
    directions: [
        { q: 0, r: -1, name: 'up' },
@@ -9,10 +10,8 @@ window.HexUtils = {
        { q: -1, r: 0, name: 'left' }
    ],
    
-   // Кэш для расстояний
    distanceCache: new Map(),
    
-   // Вычисление расстояния между гексами
    distance(q1, r1, q2, r2) {
        const key = `${q1},${r1},${q2},${r2}`;
        if (this.distanceCache.has(key)) {
@@ -23,7 +22,6 @@ window.HexUtils = {
        const s2 = -q2 - r2;
        const dist = (Math.abs(q1 - q2) + Math.abs(r1 - r2) + Math.abs(s1 - s2)) / 2;
        
-       // Ограничиваем размер кэша
        if (this.distanceCache.size < 1000) {
            this.distanceCache.set(key, dist);
        }
@@ -31,7 +29,6 @@ window.HexUtils = {
        return dist;
    },
    
-   // Получить направление движения
    getDirection(fromQ, fromR, toQ, toR) {
        const dq = toQ - fromQ;
        const dr = toR - fromR;
@@ -39,27 +36,48 @@ window.HexUtils = {
        return dir ? dir.name : 'right';
    },
    
-   // Проверка смежности (с кэшем)
    areAdjacent(q1, r1, q2, r2) {
        return this.distance(q1, r1, q2, r2) === 1;
    },
    
-   // Получить всех соседей
    getNeighbors(q, r) {
        return this.directions.map(dir => ({
            q: q + dir.q,
-           r: r + dir.r
+           r: r + dir.r,
+           name: dir.name
        }));
    },
    
-   // Конвертация в 3D позицию
+   // Получить только доступные для движения соседи
+   getValidMoveNeighbors(q, r, walls, units, cells) {
+       const neighbors = this.getNeighbors(q, r);
+       const validNeighbors = [];
+       
+       for (const neighbor of neighbors) {
+           // Проверка существования клетки
+           const cellExists = cells?.some(cell => cell.q === neighbor.q && cell.r === neighbor.r);
+           if (!cellExists) continue;
+           
+           // Проверка стены
+           const hasWall = walls?.some(w => w.q === neighbor.q && w.r === neighbor.r);
+           if (hasWall) continue;
+           
+           // Проверка занятости
+           const isOccupied = units?.some(u => u.active && u.q === neighbor.q && u.r === neighbor.r);
+           if (isOccupied) continue;
+           
+           validNeighbors.push(neighbor);
+       }
+       
+       return validNeighbors;
+   },
+   
    to3DPosition(q, r, hexSize = 0.7) {
        const x = (q + r/2) * hexSize * 1.8;
        const z = r * hexSize * 1.6;
        return { x: x, y: 0, z: z };
    },
    
-   // Очистка кэша
    clearCache() {
        this.distanceCache.clear();
    }

@@ -1,3 +1,5 @@
+// public/js/game/SocketClient.js
+
 class SocketClient {
    constructor(onGameState, onShootResult, onMessage, onGameEnded) {
        this.socket = null;
@@ -47,6 +49,7 @@ class SocketClient {
        });
        
        this.socket.on('shootResult', (result) => {
+           console.log('Shoot result received:', result);
            if (this.onShootResult) this.onShootResult(result);
        });
        
@@ -73,13 +76,24 @@ class SocketClient {
        }
    }
    
-   sendShoot(q, r) {
-       if (this.socket && this.socket.connected) {
-           this.socket.emit('shoot', { q, r });
-       } else if (this.onMessage) {
+// public/js/game/SocketClient.js
+
+sendShoot(q, r, playerId) {
+   console.log('📡 sendShoot called', { q, r, playerId });
+   console.log('Socket state:', this.socket ? (this.socket.connected ? 'connected' : 'disconnected') : 'null');
+   
+   if (this.socket && this.socket.connected) {
+       const data = { q, r, playerId };
+       console.log('Emitting shoot event with data:', data);
+       this.socket.emit('shoot', data);
+       console.log('📡 Shoot event sent to server');
+   } else {
+       console.error('❌ Cannot send shoot - socket not connected');
+       if (this.onMessage) {
            this.onMessage('❌ Нет соединения с сервером');
        }
    }
+}
    
    resetGame() {
        if (this.socket && this.socket.connected) {

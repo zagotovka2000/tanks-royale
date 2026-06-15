@@ -13,51 +13,43 @@
     </div>
 
     <div id="gameScreen">
-        <div class="game-wrapper">
-            <div class="stats-panel">
-                <div class="stat">❤️ <span id="hpValue">100</span></div>
-                <div class="stat">🗡️ <span id="killsValue">0</span></div>
-                <div class="stat">💀 <span id="enemiesValue">0</span></div>
-                <div class="stat">🎯 <span id="targetStatus">нет</span></div>
-                <div class="mode-indicator">
-                    <span>🎮 Режим:</span>
-                    <span id="modeStatus" style="color: #e94560; font-weight: bold;">🔫 СТРЕЛЬБА</span>
-                </div>
-                <div class="stat">
-                    ⏱️
-                    <div class="cooldown-bar"><div class="cooldown-fill" id="cooldownFill"></div></div>
-                    <span id="cooldownText">готов</span>
-                </div>
-            </div>
+        <div class="canvas-container">
+            <div id="canvas3d-container"></div>
+        </div>
 
-            <div class="canvas-container">
-                <div id="canvas3d-container"></div>
-            </div>
-
-            <div class="controls-panel">
-                <button class="shoot-btn" id="shootBtn">🔫 ВЫСТРЕЛ</button>
-                <button class="reset-btn" id="resetBtn">🔄</button>
+        <div class="stats-panel">
+            <div class="stat">❤️ <span id="hpValue">100</span></div>
+            <div class="stat">🗡️ <span id="killsValue">0</span></div>
+            <div class="stat">💀 <span id="enemiesValue">0</span></div>
+            <div class="stat">
+                ⏱️
+                <div class="cooldown-bar"><div class="cooldown-fill" id="cooldownFill"></div></div>
+                <span id="cooldownText">готов</span>
             </div>
         </div>
-    </div>
 
-    <div class="zoom-controls">
-        <button class="zoom-btn" id="zoomInBtn">➕</button>
-        <button class="zoom-btn" id="zoomOutBtn">➖</button>
-        <button class="zoom-btn" id="resetZoomBtn">⟲</button>
-    </div>
+        <div class="target-indicator" id="targetIndicator">
+            <div class="target-label">🎯 ЦЕЛЬ</div>
+            <div class="target-coords" id="targetCoords">нет</div>
+            <button class="target-clear" id="clearTarget">✖</button>
+        </div>
 
-    <div class="hex-controls">
-        <button data-dir="up">▲</button>
-        <div>
-            <button data-dir="up-left">◤</button>
-            <button data-dir="up-right">◥</button>
+        <div class="control-modes">
+            <button class="mode-btn move" id="moveModeBtn">🚶 ДВИЖЕНИЕ</button>
+            <button class="mode-btn shoot active" id="shootModeBtn">🔫 СТРЕЛЬБА</button>
         </div>
-        <div>
-            <button data-dir="down-left">◣</button>
-            <button data-dir="down-right">◢</button>
+
+        <div class="action-panel">
+            <button class="shoot-action-btn" id="shootActionBtn">🔫</button>
         </div>
-        <button data-dir="down">▼</button>
+
+        <div class="zoom-controls">
+            <button class="zoom-btn" id="zoomInBtn">➕</button>
+            <button class="zoom-btn" id="zoomOutBtn">➖</button>
+            <button class="zoom-btn" id="resetZoomBtn">⟲</button>
+        </div>
+
+        <button class="reset-btn" id="resetBtn">🔄</button>
     </div>
 
     <div id="gameOverScreen">
@@ -65,19 +57,59 @@
             <h1>🏆 ИГРА ОКОНЧЕНА 🏆</h1>
             <div id="winnerText" class="winner-text"></div>
             <button id="newGameBtn">🔄 Новая битва</button>
+            <div style="position: fixed; top: 100px; right: 10px; z-index: 9999; background: rgba(0,0,0,0.8); padding: 10px; border-radius: 10px;">
+               <button id="forceReset" style="background: #ff9800; color: white; padding: 10px;">🔄 ПРИНУДИТЕЛЬНЫЙ СБРОС</button>
+               <button id="forceShoot" style="background: #e94560; color: white; padding: 10px; margin-top: 5px;">🔫 ПРИНУДИТЕЛЬНЫЙ ВЫСТРЕЛ</button>
+           </div>
+           
+           <script>
+               document.getElementById('forceReset')?.addEventListener('click', () => {
+                   // Принудительный сброс через перезагрузку
+                   location.reload();
+               });
+               
+               document.getElementById('forceShoot')?.addEventListener('click', () => {
+                   if (window.gameController) {
+                       // Игнорируем проверку на жизнь
+                       const originalExecute = window.gameController.executeShoot;
+                       window.gameController.executeShoot = function() {
+                           console.log('FORCED SHOOT - IGNORING CHECKS');
+                           if (this.selectedTarget && this.socket) {
+                               const target = this.selectedTarget;
+                               const myTank = this.gameState?.myTank || { id: 'player', q: 0, r: 0 };
+                               this.socket.sendShoot(target.q, target.r, myTank.id);
+                               this.showMessage(`🔫 ПРИНУДИТЕЛЬНЫЙ выстрел по (${target.q}, ${target.r})!`);
+                           } else {
+                               this.showMessage('❌ Нет цели или сокета');
+                           }
+                       };
+                       window.gameController.executeShoot();
+                       // Восстанавливаем
+                       setTimeout(() => {
+                           window.gameController.executeShoot = originalExecute;
+                       }, 1000);
+                   }
+               });
+           </script>
         </div>
     </div>
     
     <div class="messages" id="messages"></div>
 
-    <!-- Scripts -->
     <script src="https://cdnjs.cloudflare.com/ajax/libs/three.js/r128/three.min.js"></script>
     <script src="/socket.io/socket.io.js"></script>
     
+    <!-- Сначала утилиты -->
     <script src="/js/utils/HexUtils.js"></script>
     <script src="/js/UpdateBuffer.js"></script>
+    
+    <!-- Потом рендерер -->
     <script src="/js/ThreeDRenderer.js"></script>
+    
+    <!-- Потом GameController (ВАЖНО: должен быть после ThreeDRenderer) -->
     <script src="/js/GameController.js"></script>
+    
+    <!-- Потом остальное -->
     <script src="/js/game/sounds.js"></script>
     <script src="/js/game/SocketClient.js"></script>
     <script src="/js/main.js"></script>

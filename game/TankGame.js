@@ -109,31 +109,35 @@ class TankGame {
         }
     }
     
-    initializeUnits() {
-        const enemyPositions = [
-            { q: -this.radius + 2, r: 1, name: 'Враг-Командир', color: '#e94560', type: 'heavy' },
-            { q: -this.radius + 1, r: 2, name: 'Враг-Снайпер', color: '#ff6b6b', type: 'fast' },
-            { q: -this.radius + 2, r: -1, name: 'Враг-Штурмовик', color: '#c44569', type: 'medium' },
-            { q: -this.radius + 3, r: 0, name: 'Враг-Защитник', color: '#d45079', type: 'heavy' }
-        ];
-        
-        this.enemies = enemyPositions.map((pos, i) => 
-            new TankUnit(`enemy${i}`, pos.name, 'enemy', pos.q, pos.r, 100, 35, pos.color, pos.type, null, false, 5)
-        );
-        
-        const allyPositions = [
-            { q: this.radius - 2, r: -1, name: 'Союзник-Тяжёлый', color: '#2196f3', type: 'heavy' },
-            { q: this.radius - 1, r: -2, name: 'Союзник-Стрелковый', color: '#4caf50', type: 'medium' }
-        ];
-        
-        this.allies = allyPositions.map((pos, i) => 
-            new TankUnit(`ally${i}`, pos.name, 'ally', pos.q, pos.r, 100, 35, pos.color, pos.type, null, false, 5)
-        );
-        
-        for (let ally of this.allies) {
-            this.fogOfWar.revealHexArea(ally.q, ally.r, 3);
-        }
-    }
+// В файле game/TankGame.js, найдите метод initializeUnits и замените на:
+
+initializeUnits() {
+   // Оставляем только ОДНОГО врага для тестирования
+   const enemyPositions = [
+       { q: -this.radius + 2, r: 1, name: 'Враг', color: '#e94560', type: 'medium' }
+   ];
+   
+   this.enemies = enemyPositions.map((pos, i) => 
+       new TankUnit(`enemy${i}`, pos.name, 'enemy', pos.q, pos.r, 100, 35, pos.color, pos.type, null, false, 5)
+   );
+   
+   // Убираем союзников, чтобы не мешали
+   this.allies = [];
+   
+   // Отключаем туман войны для тестирования
+   this.fogOfWar = new FogOfWar(this.radius);
+   // Открываем всю карту
+   for (let q = -this.radius; q <= this.radius; q++) {
+       for (let r = -this.radius; r <= this.radius; r++) {
+           const s = -q - r;
+           if (Math.abs(q) <= this.radius && Math.abs(r) <= this.radius && Math.abs(s) <= this.radius) {
+               this.fogOfWar.revealCell(q, r);
+           }
+       }
+   }
+   
+   console.log(`Создан 1 враг на позиции (${enemyPositions[0].q}, ${enemyPositions[0].r})`);
+}
     
     addPlayer(telegramId, name) {
         if (this.players.length > 0) {
@@ -320,97 +324,115 @@ class TankGame {
         }
     }
     
-    shootAtCell(attackerId, targetQ, targetR) {
-        const attacker = this.getAllUnits().find(u => u.id === attackerId);
-        if (!attacker || !attacker.active) return { success: false, message: "Неактивен" };
-        
-        const cooldown = this.getRemainingCooldown(attackerId);
-        if (cooldown > 0) {
-            return { success: false, message: `Перезарядка: ${Math.ceil(cooldown/1000)}с` };
-        }
-        
-        const distance = this.hexDistance(attacker.q, attacker.r, targetQ, targetR);
-        if (distance > (attacker.range || 5)) {
-            return { success: false, message: `Слишком далеко (${distance})` };
-        }
-        
-        if (!this.hasLineOfSight(attacker.q, attacker.r, targetQ, targetR)) {
-            return { success: false, message: "На пути стена или лес" };
-        }
-        
-        let target = this.getAllUnits().find(u => 
-            u.active && u.team !== attacker.team && u.q === targetQ && u.r === targetR
-        );
-        
-        this.lastActionTime.set(attackerId, Date.now());
-        
-        const targetCell = this.cells.get(`${targetQ},${targetR}`);
-        let damage = attacker.damage;
-        let hitChance = 1.0;
-        
-        if (targetCell && targetCell.terrain === 'forest') {
-            hitChance = 0.7;
-            if (Math.random() > hitChance) {
-                return {
-                    success: true,
-                    hit: false,
-                    killed: false,
-                    message: `🌳 Лес укрыл цель! Промах!`,
-                    targetQ: targetQ,
-                    targetR: targetR,
-                    fromQ: attacker.q,
-                    fromR: attacker.r,
-                    attackerId: attacker.id
-                };
-            }
-        }
-        
-        if (!target) {
-            const wallDestroyed = this.damageWall(targetQ, targetR);
-            return {
-                success: true,
-                hit: false,
-                wallDestroyed: wallDestroyed,
-                message: wallDestroyed ? "🧱 Стена разрушена!" : "💨 Промах!",
-                targetQ: targetQ,
-                targetR: targetR,
-                fromQ: attacker.q,
-                fromR: attacker.r,
-                attackerId: attacker.id
-            };
-        }
-        
-        target.hp -= damage;
-        
-        if (target.hp <= 0) {
-            target.active = false;
-            attacker.kills++;
-            this.effectManager.addSmoke(target.q, target.r, target.name);
-            return {
-                success: true,
-                hit: true,
-                killed: true,
-                message: `💀 ${target.name} уничтожен!`,
-                targetX: target.q,
-                targetY: target.r,
-                fromQ: attacker.q,
-                fromR: attacker.r,
-                attackerId: attacker.id
-            };
-        }
-        
-        return {
-            success: true,
-            hit: true,
-            killed: false,
-            message: `💥 Попадание в ${target.name}! -${damage} HP`,
-            targetX: target.q,
-            targetY: target.r,
-            fromQ: attacker.q,
-            fromR: attacker.r,
-            attackerId: attacker.id
-        };
-    }
+// В TankGame.js - добавим больше отладки в shootAtCell
+
+shootAtCell(attackerId, targetQ, targetR) {
+   console.log(`shootAtCell called: attacker ${attackerId} -> (${targetQ}, ${targetR})`);
+   
+   const attacker = this.getAllUnits().find(u => u.id === attackerId);
+   if (!attacker || !attacker.active) {
+       console.log('Attacker not found or inactive');
+       return { success: false, message: "Неактивен" };
+   }
+   
+   const cooldown = this.getRemainingCooldown(attackerId);
+   if (cooldown > 0) {
+       console.log('Cooldown:', cooldown);
+       return { success: false, message: `Перезарядка: ${Math.ceil(cooldown/1000)}с` };
+   }
+   
+   const distance = this.hexDistance(attacker.q, attacker.r, targetQ, targetR);
+   if (distance > (attacker.range || 5)) {
+       console.log('Distance too far:', distance);
+       return { success: false, message: `Слишком далеко (${distance})` };
+   }
+   
+   if (!this.hasLineOfSight(attacker.q, attacker.r, targetQ, targetR)) {
+       console.log('No line of sight');
+       return { success: false, message: "На пути стена или лес" };
+   }
+   
+   // Ищем цель на указанной клетке
+   let target = this.getAllUnits().find(u => 
+       u.active && u.team !== attacker.team && u.q === targetQ && u.r === targetR
+   );
+   
+   this.lastActionTime.set(attackerId, Date.now());
+   
+   const targetCell = this.cells.get(`${targetQ},${targetR}`);
+   let damage = attacker.damage;
+   let hitChance = 1.0;
+   
+   // Лес укрывает
+   if (targetCell && targetCell.terrain === 'forest') {
+       hitChance = 0.7;
+       if (Math.random() > hitChance) {
+           console.log('Missed due to forest');
+           return {
+               success: true,
+               hit: false,
+               killed: false,
+               message: `🌳 Лес укрыл цель! Промах!`,
+               targetQ: targetQ,
+               targetR: targetR,
+               fromQ: attacker.q,
+               fromR: attacker.r,
+               attackerId: attacker.id
+           };
+       }
+   }
+   
+   // Стрельба по стене
+   if (!target) {
+       const wallDestroyed = this.damageWall(targetQ, targetR);
+       console.log('Shot at wall, destroyed:', wallDestroyed);
+       return {
+           success: true,
+           hit: false,
+           wallDestroyed: wallDestroyed,
+           message: wallDestroyed ? "🧱 Стена разрушена!" : "💨 Промах!",
+           targetQ: targetQ,
+           targetR: targetR,
+           fromQ: attacker.q,
+           fromR: attacker.r,
+           attackerId: attacker.id
+       };
+   }
+   
+   // Попадание по врагу
+   console.log(`Hit ${target.name} for ${damage} damage`);
+   target.hp -= damage;
+   
+   if (target.hp <= 0) {
+       target.active = false;
+       attacker.kills++;
+       this.effectManager.addSmoke(target.q, target.r, target.name);
+       console.log(`${target.name} destroyed!`);
+       return {
+           success: true,
+           hit: true,
+           killed: true,
+           message: `💀 ${target.name} уничтожен!`,
+           targetX: target.q,
+           targetY: target.r,
+           fromQ: attacker.q,
+           fromR: attacker.r,
+           attackerId: attacker.id
+       };
+   }
+   
+   return {
+       success: true,
+       hit: true,
+       killed: false,
+       message: `💥 Попадание в ${target.name}! -${damage} HP`,
+       targetX: target.q,
+       targetY: target.r,
+       fromQ: attacker.q,
+       fromR: attacker.r,
+       attackerId: attacker.id
+   };
+}
     
     botAction() {
       const player = this.getFirstPlayer();

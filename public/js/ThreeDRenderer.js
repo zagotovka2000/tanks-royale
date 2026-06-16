@@ -7,6 +7,7 @@ class ThreeDRenderer {
        this.hexMeshes = new Map();
        this.tankMeshes = new Map();
        this.highlightMeshes = new Map();
+       this.deadTankMeshes = new Map();
        this.isInitialized = false;
        this.hexSize = 0.7;
        this.currentHighlight = null;
@@ -15,6 +16,11 @@ class ThreeDRenderer {
        this.animationFrameId = null;
        this.boundHandlers = new Map();
        this.isDisposed = false;
+       
+       // Анимация движения
+       this.tankAnimations = new Map();
+       this.moveSound = null;
+       this.isSoundLoaded = false;
        
        // Определяем мобильное устройство
        this.isMobile = /Mobi|Android|iPhone|iPad|iPod/i.test(navigator.userAgent);
@@ -37,6 +43,23 @@ class ThreeDRenderer {
            arena: 0x6b4c3b,
            edge: 0x3a5a3a
        };
+       
+       // ✅ НЕ загружаем звук в конструкторе, загружаем при инициализации
+   }
+   
+   // Загрузка звука движения
+   async loadMoveSound() {
+       try {
+           this.moveSound = new Audio('/sounds/move.mp3');
+           this.moveSound.loop = true;
+           this.moveSound.volume = 0.2;
+           await this.moveSound.load();
+           this.isSoundLoaded = true;
+           console.log('✅ Move sound loaded');
+       } catch (e) {
+           console.warn('⚠️ Move sound not loaded:', e);
+           this.isSoundLoaded = false;
+       }
    }
    
    init() {
@@ -49,6 +72,9 @@ class ThreeDRenderer {
            console.error('Container not found!');
            return false;
        }
+       
+       // ✅ Загружаем звук при инициализации
+       this.loadMoveSound();
        
        const waitForSize = () => {
            const rect = this.container.getBoundingClientRect();
@@ -86,7 +112,6 @@ class ThreeDRenderer {
            powerPreference: "high-performance"
        });
        
-       // ✅ Оптимизация для мобильных
        if (this.isMobile) {
            this.renderer.setPixelRatio(1);
        } else {
@@ -317,7 +342,6 @@ class ThreeDRenderer {
            return false;
        }
        
-       // ✅ Очищаем только старые меши
        this.hexMeshes.forEach(mesh => {
            if (mesh && this.scene) {
                this.scene.remove(mesh);
@@ -326,7 +350,6 @@ class ThreeDRenderer {
        });
        this.hexMeshes.clear();
        
-       // ✅ Создаем новые гексы
        gameState.cells.forEach(cell => {
            if (!cell || typeof cell.q === 'undefined' || typeof cell.r === 'undefined') {
                return;
@@ -398,12 +421,53 @@ class ThreeDRenderer {
        this.highlightMeshes.clear();
    }
    
-   createTankModel(color) {
+   // ============ СОЗДАНИЕ ТАНКОВ С РАЗНЫМИ ТИПАМИ ============
+   
+   createTankModel(unit) {
        const group = new THREE.Group();
+       const color = unit.color ? new THREE.Color(unit.color) : new THREE.Color(0x4caf50);
        
-       const bodyGeo = new THREE.BoxBufferGeometry(0.6, 0.2, 0.7);
+       // Определяем тип танка
+       const tankType = unit.type || 'medium';
+       
+       // Размеры в зависимости от типа
+       let bodyWidth = 0.6;
+       let bodyHeight = 0.2;
+       let bodyLength = 0.7;
+       let turretRadius = 0.45;
+       let barrelLength = 0.55;
+       let barrelRadius = 0.07;
+       let trackWidth = 0.2;
+       
+       switch(tankType) {
+           case 'light':
+               bodyWidth = 0.5;
+               bodyHeight = 0.15;
+               bodyLength = 0.6;
+               turretRadius = 0.35;
+               barrelLength = 0.4;
+               barrelRadius = 0.05;
+               trackWidth = 0.15;
+               break;
+           case 'heavy':
+               bodyWidth = 0.8;
+               bodyHeight = 0.3;
+               bodyLength = 0.9;
+               turretRadius = 0.55;
+               barrelLength = 0.7;
+               barrelRadius = 0.1;
+               trackWidth = 0.25;
+               break;
+           case 'medium':
+           default:
+               // Стандартные размеры
+               break;
+       }
+       
+       // === КОРПУС ===
+       const bodyGeo = new THREE.BoxBufferGeometry(bodyWidth, bodyHeight, bodyLength);
        const bodyMat = new THREE.MeshStandardMaterial({ 
-           color: color, 
+           color: color,
            metalness: 0.6, 
            roughness: 0.3 
        });
@@ -414,44 +478,93 @@ class ThreeDRenderer {
        }
        group.add(body);
        
-       const turretGeo = new THREE.CylinderBufferGeometry(0.45, 0.5, 0.18, this.isMobile ? 6 : 8);
+       // === БАШНЯ ===
+       const turretGeo = new THREE.CylinderBufferGeometry(
+           turretRadius, 
+           turretRadius * 1.1, 
+           bodyHeight * 0.9, 
+           this.isMobile ? 6 : 8
+       );
        const turretMat = new THREE.MeshStandardMaterial({ 
-           color: color, 
+           color: color,
            metalness: 0.7, 
            roughness: 0.2 
        });
        const turret = new THREE.Mesh(turretGeo, turretMat);
-       turret.position.y = 0.18;
+       turret.position.y = bodyHeight;
        if (!this.isMobile) {
            turret.castShadow = true;
        }
        group.add(turret);
        
-       const barrelGeo = new THREE.CylinderBufferGeometry(0.07, 0.09, 0.55, this.isMobile ? 4 : 6);
+       // === СТВОЛ ===
+       const barrelGeo = new THREE.CylinderBufferGeometry(
+           barrelRadius * 0.7, 
+           barrelRadius, 
+           barrelLength, 
+           this.isMobile ? 4 : 6
+       );
        const barrelMat = new THREE.MeshStandardMaterial({ 
            color: 0x555555, 
-           metalness: 0.8 
+           metalness: 0.8,
+           roughness: 0.2
        });
        const barrel = new THREE.Mesh(barrelGeo, barrelMat);
        barrel.rotation.x = Math.PI / 2;
-       barrel.position.set(0.4, 0.2, 0);
+       barrel.position.set(barrelLength * 0.5, bodyHeight, 0);
        if (!this.isMobile) {
            barrel.castShadow = true;
        }
        group.add(barrel);
        
-       const trackGeo = new THREE.BoxBufferGeometry(0.7, 0.1, 0.2);
+       // === ГУСЕНИЦЫ ===
+       const trackGeo = new THREE.BoxBufferGeometry(bodyWidth * 1.15, 0.1, trackWidth);
        const trackMat = new THREE.MeshStandardMaterial({ 
            color: 0x333333, 
-           metalness: 0.3 
+           metalness: 0.3,
+           roughness: 0.8
        });
+       
+       // Левая гусеница
        const leftTrack = new THREE.Mesh(trackGeo, trackMat);
-       leftTrack.position.set(-0.35, 0, 0.25);
+       leftTrack.position.set(0, 0, bodyLength * 0.45);
        group.add(leftTrack);
        
+       // Правая гусеница
        const rightTrack = new THREE.Mesh(trackGeo, trackMat);
-       rightTrack.position.set(0.35, 0, 0.25);
+       rightTrack.position.set(0, 0, -bodyLength * 0.45);
        group.add(rightTrack);
+       
+       // === ДЕТАЛИ (для реалистичности) ===
+       // Люк
+       const hatchGeo = new THREE.SphereBufferGeometry(0.08, 6, 6);
+       const hatchMat = new THREE.MeshStandardMaterial({ 
+           color: 0x444444, 
+           metalness: 0.5 
+       });
+       const hatch = new THREE.Mesh(hatchGeo, hatchMat);
+       hatch.position.set(0, bodyHeight + 0.05, 0.1);
+       hatch.scale.set(1, 0.4, 1);
+       group.add(hatch);
+       
+       // Катки на гусеницах
+       const wheelGeo = new THREE.CylinderBufferGeometry(0.06, 0.06, 0.08, 6);
+       const wheelMat = new THREE.MeshStandardMaterial({ 
+           color: 0x222222, 
+           metalness: 0.5 
+       });
+       
+       for (let i = -1; i <= 1; i++) {
+           const wheel = new THREE.Mesh(wheelGeo, wheelMat);
+           wheel.rotation.x = Math.PI / 2;
+           wheel.position.set(i * 0.2, -0.05, bodyLength * 0.35);
+           group.add(wheel);
+           
+           const wheel2 = new THREE.Mesh(wheelGeo, wheelMat);
+           wheel2.rotation.x = Math.PI / 2;
+           wheel2.position.set(i * 0.2, -0.05, -bodyLength * 0.35);
+           group.add(wheel2);
+       }
        
        return group;
    }
@@ -470,27 +583,254 @@ class ThreeDRenderer {
        return rotations[direction] || 0;
    }
    
+   // ============ АНИМАЦИЯ ДВИЖЕНИЯ ============
+   
+   animateTankMove(unitId, fromQ, fromR, toQ, toR, duration = 3000) {
+       const mesh = this.tankMeshes.get(unitId);
+       if (!mesh) {
+           console.warn('Tank mesh not found for:', unitId);
+           return;
+       }
+       
+       const from = this.hexTo3DPosition(fromQ, fromR);
+       const to = this.hexTo3DPosition(toQ, toR);
+       
+       let anim = this.tankAnimations.get(unitId);
+       if (!anim) {
+           anim = {
+               isMoving: false,
+               currentPos: { x: from.x, z: from.z },
+               targetPos: { x: to.x, z: to.z },
+               startTime: 0,
+               duration: duration,
+               progress: 1,
+               speed: 0,
+               sound: null
+           };
+           this.tankAnimations.set(unitId, anim);
+       }
+       
+       // Обновляем состояние анимации
+       anim.isMoving = true;
+       anim.currentPos = { x: from.x, z: from.z };
+       anim.targetPos = { x: to.x, z: to.z };
+       anim.startTime = performance.now();
+       anim.duration = duration;
+       anim.progress = 0;
+       anim.speed = 0;
+       
+       // Запускаем звук движения
+       this.playMoveSound(unitId);
+       
+       // Анимируем
+       const animateMove = (now) => {
+           if (!this.isInitialized || this.isDisposed) return;
+           if (!anim.isMoving) return;
+           
+           const elapsed = now - anim.startTime;
+           anim.progress = Math.min(1, elapsed / anim.duration);
+           
+           // Ease in-out для плавности
+           const ease = anim.progress < 0.5 
+               ? 2 * anim.progress * anim.progress 
+               : 1 - Math.pow(-2 * anim.progress + 2, 2) / 2;
+           
+           // Интерполяция позиции
+           const x = from.x + (to.x - from.x) * ease;
+           const z = from.z + (to.z - from.z) * ease;
+           
+           // Подпрыгивание для реалистичности
+           const bounce = Math.sin(anim.progress * Math.PI) * 0.04;
+           
+           mesh.position.set(x, 0.08 + bounce, z);
+           
+           // Вращение в направлении движения
+           if (anim.progress < 0.9) {
+               const angle = Math.atan2(to.z - from.z, to.x - from.x);
+               mesh.rotation.y = angle;
+           }
+           
+           // Обновляем скорость для звука
+           anim.speed = Math.sin(anim.progress * Math.PI);
+           
+           // Если анимация не завершена - продолжаем
+           if (anim.progress < 1) {
+               requestAnimationFrame(animateMove);
+           } else {
+               // Завершаем движение
+               mesh.position.set(to.x, 0.08, to.z);
+               anim.isMoving = false;
+               anim.progress = 1;
+               anim.speed = 0;
+               
+               // Останавливаем звук
+               this.stopMoveSound(unitId);
+           }
+       };
+       
+       requestAnimationFrame(animateMove);
+   }
+   
+   playMoveSound(unitId) {
+       if (!this.isSoundLoaded || !this.moveSound) return;
+       
+       const anim = this.tankAnimations.get(unitId);
+       if (!anim) return;
+       
+       // Если звук уже играет - не создаем новый
+       if (anim.sound) return;
+       
+       try {
+           const sound = this.moveSound.cloneNode();
+           sound.volume = 0.15;
+           sound.loop = true;
+           sound.play().catch(() => {});
+           anim.sound = sound;
+       } catch (e) {
+           // Игнорируем ошибки
+       }
+   }
+   
+   stopMoveSound(unitId) {
+       const anim = this.tankAnimations.get(unitId);
+       if (anim && anim.sound) {
+           try {
+               anim.sound.pause();
+               anim.sound = null;
+           } catch (e) {}
+       }
+   }
+   
+   // Движение игрока
+   movePlayerTank(playerId, fromQ, fromR, toQ, toR) {
+       this.animateTankMove(playerId, fromQ, fromR, toQ, toR, 3000);
+   }
+   
+   // ============ УПРАВЛЕНИЕ ТАНКАМИ ============
+   
    updateTankPosition(unit) {
        const mesh = this.tankMeshes.get(unit.id);
        if (!mesh) return;
        
-       const pos = this.hexTo3DPosition(unit.q, unit.r);
-       mesh.position.set(pos.x, 0.08, pos.z);
-       mesh.rotation.y = this.getTankRotation(unit.direction);
+       const anim = this.tankAnimations.get(unit.id);
+       
+       // Если танк не двигается - просто обновляем позицию
+       if (!anim || !anim.isMoving) {
+           const pos = this.hexTo3DPosition(unit.q, unit.r);
+           mesh.position.set(pos.x, 0.08, pos.z);
+           mesh.rotation.y = this.getTankRotation(unit.direction);
+       }
    }
    
    createTankMesh(unit, isPlayer) {
-       let color = 0xe94560;
-       if (isPlayer) color = 0x4caf50;
-       else if (unit.team === 'ally') color = 0x2196f3;
-       
-       const tank = this.createTankModel(color);
+       const tank = this.createTankModel(unit);
        const pos = this.hexTo3DPosition(unit.q, unit.r);
        tank.position.set(pos.x, 0.08, pos.z);
        tank.rotation.y = this.getTankRotation(unit.direction);
        
        this.scene.add(tank);
        this.tankMeshes.set(unit.id, tank);
+       
+       // Инициализируем анимацию
+       this.tankAnimations.set(unit.id, {
+           isMoving: false,
+           currentPos: { x: pos.x, z: pos.z },
+           targetPos: { x: pos.x, z: pos.z },
+           startTime: 0,
+           duration: 500,
+           progress: 1,
+           speed: 0,
+           sound: null
+       });
+       
+       return tank;
+   }
+   
+   createDeadTankMesh(unit) {
+       const group = new THREE.Group();
+       
+       // Темный, поврежденный танк
+       const color = unit.color ? new THREE.Color(unit.color) : new THREE.Color(0x333333);
+       color.multiplyScalar(0.4);
+       
+       const bodyGeo = new THREE.BoxBufferGeometry(0.6, 0.15, 0.7);
+       const bodyMat = new THREE.MeshStandardMaterial({ 
+           color: color, 
+           roughness: 0.9,
+           metalness: 0.1,
+           transparent: true,
+           opacity: 0.7
+       });
+       const body = new THREE.Mesh(bodyGeo, bodyMat);
+       body.position.y = 0.02;
+       body.rotation.x = 0.1;
+       body.rotation.z = 0.05;
+       group.add(body);
+       
+       const turretGeo = new THREE.CylinderBufferGeometry(0.35, 0.4, 0.12, 6);
+       const turretMat = new THREE.MeshStandardMaterial({ 
+           color: 0x444444, 
+           roughness: 0.9,
+           transparent: true,
+           opacity: 0.6
+       });
+       const turret = new THREE.Mesh(turretGeo, turretMat);
+       turret.position.y = 0.1;
+       turret.rotation.x = 0.2;
+       group.add(turret);
+       
+       // Дым
+       const smokeGeo = new THREE.SphereBufferGeometry(0.08, 4, 4);
+       const smokeMat = new THREE.MeshStandardMaterial({
+           color: 0x222222,
+           transparent: true,
+           opacity: 0.3
+       });
+       
+       for (let i = 0; i < 3; i++) {
+           const smoke = new THREE.Mesh(smokeGeo, smokeMat);
+           smoke.position.set(
+               (Math.random() - 0.5) * 0.2,
+               0.1 + Math.random() * 0.1,
+               (Math.random() - 0.5) * 0.2
+           );
+           group.add(smoke);
+       }
+       
+       const pos = this.hexTo3DPosition(unit.q, unit.r);
+       group.position.set(pos.x, 0.02, pos.z);
+       group.rotation.y = Math.random() * 0.3;
+       
+       this.scene.add(group);
+       this.deadTankMeshes.set(unit.id, group);
+       
+       // Автоматически удаляем труп через 30 секунд
+       setTimeout(() => {
+           const deadMesh = this.deadTankMeshes.get(unit.id);
+           if (deadMesh) {
+               this.scene.remove(deadMesh);
+               this.disposeMesh(deadMesh);
+               this.deadTankMeshes.delete(unit.id);
+           }
+       }, 30000);
+   }
+   
+   addDeadTank(unit) {
+       if (this.isDisposed) return;
+       
+       // Удаляем живой танк
+       const liveMesh = this.tankMeshes.get(unit.id);
+       if (liveMesh) {
+           this.scene.remove(liveMesh);
+           this.disposeMesh(liveMesh);
+           this.tankMeshes.delete(unit.id);
+       }
+       
+       // Удаляем анимацию
+       this.tankAnimations.delete(unit.id);
+       
+       // Создаем труп
+       this.createDeadTankMesh(unit);
    }
    
    updateTanks(gameState) {
@@ -532,6 +872,7 @@ class ThreeDRenderer {
            }
        });
        
+       // Удаляем танки, которых нет в игре
        existingIds.forEach(id => {
            const mesh = this.tankMeshes.get(id);
            if (mesh) {
@@ -539,6 +880,7 @@ class ThreeDRenderer {
                this.disposeMesh(mesh);
                this.tankMeshes.delete(id);
            }
+           this.tankAnimations.delete(id);
        });
        
        return true;
@@ -728,7 +1070,6 @@ class ThreeDRenderer {
        flash.position.set(pos.x, 0.3, pos.z);
        this.scene.add(flash);
        
-       // ✅ Уменьшаем количество искр на мобильных
        const sparkCount = this.isMobile ? 4 : 8;
        for (let i = 0; i < sparkCount; i++) {
            setTimeout(() => {
@@ -825,6 +1166,16 @@ class ThreeDRenderer {
        
        this.isInitialized = false;
        
+       // Останавливаем все звуки
+       this.tankAnimations.forEach((anim) => {
+           if (anim.sound) {
+               try {
+                   anim.sound.pause();
+               } catch (e) {}
+           }
+       });
+       this.tankAnimations.clear();
+       
        this.boundHandlers.forEach((handler, name) => {
            if (name === 'resize') {
                window.removeEventListener('resize', handler);
@@ -840,9 +1191,11 @@ class ThreeDRenderer {
        this.clearMoveHighlight();
        this.hexMeshes.forEach(mesh => this.disposeMesh(mesh));
        this.tankMeshes.forEach(mesh => this.disposeMesh(mesh));
+       this.deadTankMeshes.forEach(mesh => this.disposeMesh(mesh));
        
        this.hexMeshes.clear();
        this.tankMeshes.clear();
+       this.deadTankMeshes.clear();
        
        if (this.renderer) {
            this.renderer.dispose();

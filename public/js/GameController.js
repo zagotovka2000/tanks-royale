@@ -320,159 +320,167 @@ class GameController {
     }
     
     moveTo(q, r) {
-        if (!this.gameState?.myTank || this.gameState.gameOver) return;
-        
-        const myTank = this.gameState.myTank;
-        const direction = window.HexUtils.getDirection(myTank.q, myTank.r, q, r);
-        
-        if (this.gameState.myTank) {
-            this.gameState.myTank.direction = direction;
-        }
-        
-        if (this.socket) {
-            this.socket.sendMove(q, r);
-        }
-        
-        this.showMessage(`🚶 Движение на (${q}, ${r})`);
-        
-        if (this.renderer) {
-            setTimeout(() => this.renderer.clearMoveHighlight(), 100);
-        }
-    }
-    
-    executeShoot() {
-      console.log('========================================');
-      console.log('=== EXECUTE SHOOT CALLED ===');
-      console.log('Selected target:', this.selectedTarget);
-      
-      if (!this.selectedTarget) {
-          this.showMessage('⚠️ Сначала выберите цель (нажмите на клетку)');
-          return;
-      }
-      
-      if (!this.gameState || this.gameState.gameOver) {
-          this.showMessage('⚠️ Игра не активна');
-          return;
-      }
+      if (!this.gameState?.myTank || this.gameState.gameOver) return;
       
       const myTank = this.gameState.myTank;
-      if (!myTank || myTank.hp <= 0) {
-          this.showMessage('⚠️ Ваш танк уничтожен');
-          return;
-      }
+      const fromQ = myTank.q;
+      const fromR = myTank.r;
+      const direction = window.HexUtils.getDirection(fromQ, fromR, q, r);
       
-      const now = Date.now();
-      if (now - this.lastShootTime < this.shootCooldown) {
-          const remaining = Math.ceil((this.shootCooldown - (now - this.lastShootTime)) / 1000);
-          this.showMessage(`⏱️ Перезарядка: ${remaining} сек`);
-          return;
-      }
-      
-      const target = this.selectedTarget;
-      const distance = window.HexUtils.distance(myTank.q, myTank.r, target.q, target.r);
-      
-      if (distance > (myTank.range || 5)) {
-          this.showMessage(`⚠️ Слишком далеко! Дистанция ${distance}`);
-          return;
-      }
-      
-      console.log('✅ All checks passed, starting animation and sending shoot!');
-      
-      const direction = window.HexUtils.getDirection(myTank.q, myTank.r, target.q, target.r);
       if (this.gameState.myTank) {
           this.gameState.myTank.direction = direction;
       }
       
-      if (window.soundManager) {
-          window.soundManager.play('shoot');
+      // ✅ Анимируем движение (3 секунды)
+      if (this.renderer && typeof this.renderer.movePlayerTank === 'function') {
+          this.renderer.movePlayerTank(myTank.id, fromQ, fromR, q, r);
       }
+      
+      // ✅ Отправляем на сервер СРАЗУ, не дожидаясь окончания анимации
+      if (this.socket) {
+          this.socket.sendMove(q, r);
+      }
+      
+      this.showMessage(`🚶 Движение на (${q}, ${r})`);
       
       if (this.renderer) {
-          console.log('🎬 Calling addMuzzleFlash');
-          this.renderer.addMuzzleFlash(myTank.q, myTank.r, direction);
-          
-          console.log('🎬 Calling addShotAnimation');
-          this.renderer.addShotAnimation(
-              myTank.q, myTank.r, target.q, target.r,
-              () => {
-                  console.log('🎬 Animation complete, sending to server');
-                  if (this.socket) {
-                      this.socket.sendShoot(target.q, target.r, myTank.id);
-                  }
-              }
-          );
-      } else {
-          console.error('No renderer available!');
-          if (this.socket) {
-              this.socket.sendShoot(target.q, target.r, myTank.id);
-          }
+          setTimeout(() => this.renderer.clearMoveHighlight(), 100);
       }
-      
-      this.lastShootTime = now;
-      this.showMessage(`🔫 Выстрел по координатам (${target.q}, ${target.r})!`);
   }
     
-  onShootResult(result) {
-   console.log('onShootResult', result);
-   
-   if (!result) return;
-   
-   // Всегда показываем анимацию выстрела
-   if (result.fromQ !== undefined && result.fromR !== undefined && 
-       result.targetQ !== undefined && result.targetR !== undefined) {
-       
-       console.log('🎬 Adding shot animation for:', result.fromQ, result.fromR, '->', result.targetQ, result.targetR);
-       
-       if (this.renderer && typeof this.renderer.addShotAnimation === 'function') {
-           this.renderer.addShotAnimation(
-               result.fromQ, result.fromR, 
-               result.targetQ, result.targetR,
-               null
-           );
-       }
-   }
-   
-   // Обработка попадания
-   if (result.hit) {
-       const hitX = result.targetX || result.targetQ;
-       const hitY = result.targetY || result.targetR;
-       console.log('💥 Showing hit effect at:', hitX, hitY);
-       
-       if (this.renderer && typeof this.renderer.addHitEffect === 'function') {
-           this.renderer.addHitEffect(hitX, hitY);
-       }
-       
-       if (result.killed) {
-           this.showMessage(`💀 ${result.message || 'Уничтожение!'}`);
-           
-           // Создаем труп на месте уничтоженного танка
-           if (this.gameState) {
-               const deadUnit = [...(this.gameState.enemies || []), ...(this.gameState.allies || [])]
-                   .find(u => u.q === result.targetX && u.r === result.targetY);
-               
-               if (deadUnit && this.renderer && typeof this.renderer.addDeadTank === 'function') {
-                   this.renderer.addDeadTank(deadUnit);
-               }
-           }
-       } else {
-           this.showMessage(`💥 ${result.message || 'Попадание!'}`);
-       }
-   } else if (result.wallDestroyed) {
-       this.showMessage('🧱 Стена разрушена!');
-   } else if (result.message) {
-       // Промах или другое сообщение
-       this.showMessage(`❌ ${result.message}`);
-   }
-   
-   // Звуки
-   if (window.soundManager) {
-       if (result.hit) {
-           window.soundManager.play('explosion');
-       } else if (!result.wallDestroyed) {
-           window.soundManager.play('miss');
-       }
-   }
-}
+    executeShoot() {
+        console.log('========================================');
+        console.log('=== EXECUTE SHOOT CALLED ===');
+        console.log('Selected target:', this.selectedTarget);
+        
+        if (!this.selectedTarget) {
+            this.showMessage('⚠️ Сначала выберите цель (нажмите на клетку)');
+            return;
+        }
+        
+        if (!this.gameState || this.gameState.gameOver) {
+            this.showMessage('⚠️ Игра не активна');
+            return;
+        }
+        
+        const myTank = this.gameState.myTank;
+        if (!myTank || myTank.hp <= 0) {
+            this.showMessage('⚠️ Ваш танк уничтожен');
+            return;
+        }
+        
+        const now = Date.now();
+        if (now - this.lastShootTime < this.shootCooldown) {
+            const remaining = Math.ceil((this.shootCooldown - (now - this.lastShootTime)) / 1000);
+            this.showMessage(`⏱️ Перезарядка: ${remaining} сек`);
+            return;
+        }
+        
+        const target = this.selectedTarget;
+        const distance = window.HexUtils.distance(myTank.q, myTank.r, target.q, target.r);
+        
+        if (distance > (myTank.range || 5)) {
+            this.showMessage(`⚠️ Слишком далеко! Дистанция ${distance}`);
+            return;
+        }
+        
+        console.log('✅ All checks passed, starting animation and sending shoot!');
+        
+        const direction = window.HexUtils.getDirection(myTank.q, myTank.r, target.q, target.r);
+        if (this.gameState.myTank) {
+            this.gameState.myTank.direction = direction;
+        }
+        
+        if (window.soundManager) {
+            window.soundManager.play('shoot');
+        }
+        
+        if (this.renderer) {
+            console.log('🎬 Calling addMuzzleFlash');
+            this.renderer.addMuzzleFlash(myTank.q, myTank.r, direction);
+            
+            console.log('🎬 Calling addShotAnimation');
+            this.renderer.addShotAnimation(
+                myTank.q, myTank.r, target.q, target.r,
+                () => {
+                    console.log('🎬 Animation complete, sending to server');
+                    if (this.socket) {
+                        this.socket.sendShoot(target.q, target.r, myTank.id);
+                    }
+                }
+            );
+        } else {
+            console.error('No renderer available!');
+            if (this.socket) {
+                this.socket.sendShoot(target.q, target.r, myTank.id);
+            }
+        }
+        
+        this.lastShootTime = now;
+        this.showMessage(`🔫 Выстрел по координатам (${target.q}, ${target.r})!`);
+    }
+    
+    onShootResult(result) {
+        console.log('onShootResult', result);
+        
+        if (!result) return;
+        
+        // Всегда показываем анимацию выстрела
+        if (result.fromQ !== undefined && result.fromR !== undefined && 
+            result.targetQ !== undefined && result.targetR !== undefined) {
+            
+            console.log('🎬 Adding shot animation for:', result.fromQ, result.fromR, '->', result.targetQ, result.targetR);
+            
+            if (this.renderer && typeof this.renderer.addShotAnimation === 'function') {
+                this.renderer.addShotAnimation(
+                    result.fromQ, result.fromR, 
+                    result.targetQ, result.targetR,
+                    null
+                );
+            }
+        }
+        
+        // Обработка попадания
+        if (result.hit) {
+            const hitX = result.targetX || result.targetQ;
+            const hitY = result.targetY || result.targetR;
+            console.log('💥 Showing hit effect at:', hitX, hitY);
+            
+            if (this.renderer && typeof this.renderer.addHitEffect === 'function') {
+                this.renderer.addHitEffect(hitX, hitY);
+            }
+            
+            if (result.killed) {
+                this.showMessage(`💀 ${result.message || 'Уничтожение!'}`);
+                
+                // Создаем труп на месте уничтоженного танка
+                if (this.gameState) {
+                    const deadUnit = [...(this.gameState.enemies || []), ...(this.gameState.allies || [])]
+                        .find(u => u.q === result.targetX && u.r === result.targetY);
+                    
+                    if (deadUnit && this.renderer && typeof this.renderer.addDeadTank === 'function') {
+                        this.renderer.addDeadTank(deadUnit);
+                    }
+                }
+            } else {
+                this.showMessage(`💥 ${result.message || 'Попадание!'}`);
+            }
+        } else if (result.wallDestroyed) {
+            this.showMessage('🧱 Стена разрушена!');
+        } else if (result.message) {
+            // Промах или другое сообщение
+            this.showMessage(`❌ ${result.message}`);
+        }
+        
+        // Звуки
+        if (window.soundManager) {
+            if (result.hit) {
+                window.soundManager.play('explosion');
+            } else if (!result.wallDestroyed) {
+                window.soundManager.play('miss');
+            }
+        }
+    }
     
     onGameEnded(data) {
         if (!data) return;
@@ -558,13 +566,15 @@ class GameController {
     }
 }
 
+// Регистрация для браузера
 if (typeof window !== 'undefined') {
     window.GameController = GameController;
-    console.log('GameController registered to window');
+    console.log('✅ GameController registered to window');
 }
 
+// Экспорт для модулей
 if (typeof module !== 'undefined' && module.exports) {
     module.exports = { GameController };
 }
 
-console.log('GameController.js loaded successfully');
+console.log('✅ GameController.js loaded successfully');

@@ -10,7 +10,7 @@ class TankUnit {
        this.maxHp = hp;
        this.damage = damage;
        this.color = color;
-       this.type = type;
+       this.type = type || 'medium'; 
        this.image = image;
        this.active = true;
        this.direction = 'right';

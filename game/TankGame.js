@@ -113,14 +113,28 @@ class TankGame {
     }
     
     initializeUnits() {
-        // Оставляем только ОДНОГО врага для тестирования
-        const enemyPositions = [
-            { q: -this.radius + 2, r: 1, name: 'Враг', color: '#e94560', type: 'medium' }
-        ];
+      const enemyPositions = [
+         { q: -this.radius + 2, r: 1, name: 'Враг', color: '#e94560', type: 'heavy' },
+         { q: -this.radius + 3, r: 2, name: 'Враг 2', color: '#ff6b6b', type: 'light' },
+         { q: -this.radius + 1, r: -1, name: 'Враг 3', color: '#c0392b', type: 'medium' }
+     ];
         
-        this.enemies = enemyPositions.map((pos, i) => 
-            new TankUnit(`enemy${i}`, pos.name, 'enemy', pos.q, pos.r, 100, 35, pos.color, pos.type, null, false, 5)
-        );
+     this.enemies = enemyPositions.map((pos, i) => 
+     new TankUnit(
+         `enemy${i}`, 
+         pos.name, 
+         'enemy', 
+         pos.q, 
+         pos.r, 
+         pos.type === 'heavy' ? 150 : pos.type === 'light' ? 70 : 100,
+         pos.type === 'heavy' ? 45 : pos.type === 'light' ? 25 : 35,
+         pos.color, 
+         pos.type, 
+         null, 
+         false, 
+         pos.type === 'heavy' ? 4 : pos.type === 'light' ? 6 : 5
+     )
+ );
         
         this.allies = [];
         

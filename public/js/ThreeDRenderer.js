@@ -1,5 +1,3 @@
-// public/js/ThreeDRenderer.js - ПОЛНАЯ ИСПРАВЛЕННАЯ ВЕРСИЯ
-
 class ThreeDRenderer {
    constructor(containerId) {
        this.container = document.getElementById(containerId);
@@ -16,8 +14,12 @@ class ThreeDRenderer {
        this.renderThrottle = 33;
        this.animationFrameId = null;
        this.boundHandlers = new Map();
+       this.isDisposed = false;
        
-       // Камера с панорамированием
+       // Определяем мобильное устройство
+       this.isMobile = /Mobi|Android|iPhone|iPad|iPod/i.test(navigator.userAgent);
+       this.hexSegments = this.isMobile ? 5 : 6;
+       
        this.isDragging = false;
        this.lastMouseX = 0;
        this.lastMouseY = 0;
@@ -38,6 +40,11 @@ class ThreeDRenderer {
    }
    
    init() {
+       if (this.isDisposed) {
+           console.error('Renderer was disposed, cannot init');
+           return false;
+       }
+       
        if (!this.container) {
            console.error('Container not found!');
            return false;
@@ -62,7 +69,7 @@ class ThreeDRenderer {
    }
    
    _doInit(width, height) {
-       console.log('ThreeDRenderer initializing with size:', width, 'x', height);
+       console.log('ThreeDRenderer initializing with size:', width, 'x', height, 'Mobile:', this.isMobile);
        
        this.container.style.width = '100%';
        this.container.style.height = '100%';
@@ -75,13 +82,21 @@ class ThreeDRenderer {
        this.updateCameraPosition();
        
        this.renderer = new THREE.WebGLRenderer({ 
-           antialias: true, 
-           powerPreference: "high-performance" 
+           antialias: !this.isMobile,
+           powerPreference: "high-performance"
        });
+       
+       // ✅ Оптимизация для мобильных
+       if (this.isMobile) {
+           this.renderer.setPixelRatio(1);
+       } else {
+           this.renderer.setPixelRatio(Math.min(window.devicePixelRatio, 2));
+       }
+       
        this.renderer.setSize(width, height);
-       this.renderer.setPixelRatio(Math.min(window.devicePixelRatio, 2));
-       this.renderer.shadowMap.enabled = true;
+       this.renderer.shadowMap.enabled = !this.isMobile;
        this.renderer.shadowMap.type = THREE.PCFSoftShadowMap;
+       this.renderer.frustumCulled = true;
        this.container.appendChild(this.renderer.domElement);
        
        this.setupLighting();
@@ -221,13 +236,15 @@ class ThreeDRenderer {
    }
    
    setupLighting() {
-       const ambientLight = new THREE.AmbientLight(0xffffff, 0.6);
+       const ambientLight = new THREE.AmbientLight(0xffffff, this.isMobile ? 0.7 : 0.6);
        this.scene.add(ambientLight);
        
-       const dirLight = new THREE.DirectionalLight(0xffffff, 1);
+       const dirLight = new THREE.DirectionalLight(0xffffff, this.isMobile ? 0.8 : 1);
        dirLight.position.set(10, 20, 5);
-       dirLight.castShadow = true;
-       dirLight.receiveShadow = true;
+       if (!this.isMobile) {
+           dirLight.castShadow = true;
+           dirLight.receiveShadow = true;
+       }
        this.scene.add(dirLight);
        
        const fillLight = new THREE.PointLight(0x4466cc, 0.3);
@@ -246,7 +263,7 @@ class ThreeDRenderer {
    }
    
    onWindowResize() {
-       if (!this.container || !this.camera || !this.renderer) return;
+       if (!this.container || !this.camera || !this.renderer || this.isDisposed) return;
        
        const width = this.container.clientWidth;
        const height = this.container.clientHeight;
@@ -271,7 +288,12 @@ class ThreeDRenderer {
    
    createHexagon(q, r, color) {
        const center = this.hexTo3DPosition(q, r);
-       const geometry = new THREE.CylinderGeometry(this.hexSize, this.hexSize, 0.25, 6);
+       const geometry = new THREE.CylinderBufferGeometry(
+           this.hexSize, 
+           this.hexSize, 
+           0.25, 
+           this.hexSegments
+       );
        const material = new THREE.MeshStandardMaterial({
            color: color,
            roughness: 0.5,
@@ -280,18 +302,22 @@ class ThreeDRenderer {
        
        const mesh = new THREE.Mesh(geometry, material);
        mesh.position.set(center.x, -0.12, center.z);
-       mesh.castShadow = true;
-       mesh.receiveShadow = true;
+       if (!this.isMobile) {
+           mesh.castShadow = true;
+           mesh.receiveShadow = true;
+       }
        mesh.userData = { q, r };
+       mesh.frustumCulled = true;
        
        return mesh;
    }
    
    drawMap(gameState) {
-       if (!this.isInitialized || !gameState || !gameState.cells) {
+       if (!this.isInitialized || !gameState || !gameState.cells || this.isDisposed) {
            return false;
        }
        
+       // ✅ Очищаем только старые меши
        this.hexMeshes.forEach(mesh => {
            if (mesh && this.scene) {
                this.scene.remove(mesh);
@@ -300,6 +326,7 @@ class ThreeDRenderer {
        });
        this.hexMeshes.clear();
        
+       // ✅ Создаем новые гексы
        gameState.cells.forEach(cell => {
            if (!cell || typeof cell.q === 'undefined' || typeof cell.r === 'undefined') {
                return;
@@ -322,17 +349,20 @@ class ThreeDRenderer {
    }
    
    highlightMoveArea(centerQ, centerR, validNeighbors) {
-       this.highlightMeshes.forEach(mesh => {
-           if (mesh && this.scene) {
-               this.scene.remove(mesh);
-               this.disposeMesh(mesh);
-           }
-       });
-       this.highlightMeshes.clear();
+       this.clearMoveHighlight();
        
        const centerPos = this.hexTo3DPosition(centerQ, centerR);
-       const centerGeo = new THREE.CylinderGeometry(this.hexSize + 0.05, this.hexSize + 0.05, 0.3, 6);
-       const centerMat = new THREE.MeshBasicMaterial({ color: 0x44ff44, transparent: true, opacity: 0.4 });
+       const centerGeo = new THREE.CylinderBufferGeometry(
+           this.hexSize + 0.05, 
+           this.hexSize + 0.05, 
+           0.3, 
+           this.hexSegments
+       );
+       const centerMat = new THREE.MeshBasicMaterial({ 
+           color: 0x44ff44, 
+           transparent: true, 
+           opacity: 0.4 
+       });
        const centerHighlight = new THREE.Mesh(centerGeo, centerMat);
        centerHighlight.position.set(centerPos.x, -0.08, centerPos.z);
        this.scene.add(centerHighlight);
@@ -340,8 +370,17 @@ class ThreeDRenderer {
        
        validNeighbors.forEach(neighbor => {
            const pos = this.hexTo3DPosition(neighbor.q, neighbor.r);
-           const geometry = new THREE.CylinderGeometry(this.hexSize + 0.08, this.hexSize + 0.08, 0.28, 6);
-           const material = new THREE.MeshBasicMaterial({ color: 0x44ff44, transparent: true, opacity: 0.6 });
+           const geometry = new THREE.CylinderBufferGeometry(
+               this.hexSize + 0.08, 
+               this.hexSize + 0.08, 
+               0.28, 
+               this.hexSegments
+           );
+           const material = new THREE.MeshBasicMaterial({ 
+               color: 0x44ff44, 
+               transparent: true, 
+               opacity: 0.6 
+           });
            const highlight = new THREE.Mesh(geometry, material);
            highlight.position.set(pos.x, -0.1, pos.z);
            this.scene.add(highlight);
@@ -362,38 +401,56 @@ class ThreeDRenderer {
    createTankModel(color) {
        const group = new THREE.Group();
        
-       const bodyGeo = new THREE.BoxGeometry(0.6, 0.2, 0.7);
-       const bodyMat = new THREE.MeshStandardMaterial({ color: color, metalness: 0.6, roughness: 0.3 });
+       const bodyGeo = new THREE.BoxBufferGeometry(0.6, 0.2, 0.7);
+       const bodyMat = new THREE.MeshStandardMaterial({ 
+           color: color, 
+           metalness: 0.6, 
+           roughness: 0.3 
+       });
        const body = new THREE.Mesh(bodyGeo, bodyMat);
        body.position.y = 0;
-       body.castShadow = true;
+       if (!this.isMobile) {
+           body.castShadow = true;
+       }
        group.add(body);
        
-       const turretGeo = new THREE.CylinderGeometry(0.45, 0.5, 0.18, 8);
-       const turretMat = new THREE.MeshStandardMaterial({ color: color, metalness: 0.7, roughness: 0.2 });
+       const turretGeo = new THREE.CylinderBufferGeometry(0.45, 0.5, 0.18, this.isMobile ? 6 : 8);
+       const turretMat = new THREE.MeshStandardMaterial({ 
+           color: color, 
+           metalness: 0.7, 
+           roughness: 0.2 
+       });
        const turret = new THREE.Mesh(turretGeo, turretMat);
        turret.position.y = 0.18;
-       turret.castShadow = true;
+       if (!this.isMobile) {
+           turret.castShadow = true;
+       }
        group.add(turret);
        
-       const barrelGeo = new THREE.CylinderGeometry(0.07, 0.09, 0.55, 6);
-       const barrelMat = new THREE.MeshStandardMaterial({ color: 0x555555, metalness: 0.8 });
+       const barrelGeo = new THREE.CylinderBufferGeometry(0.07, 0.09, 0.55, this.isMobile ? 4 : 6);
+       const barrelMat = new THREE.MeshStandardMaterial({ 
+           color: 0x555555, 
+           metalness: 0.8 
+       });
        const barrel = new THREE.Mesh(barrelGeo, barrelMat);
        barrel.rotation.x = Math.PI / 2;
        barrel.position.set(0.4, 0.2, 0);
-       barrel.castShadow = true;
+       if (!this.isMobile) {
+           barrel.castShadow = true;
+       }
        group.add(barrel);
        
-       const trackGeo = new THREE.BoxGeometry(0.7, 0.1, 0.2);
-       const trackMat = new THREE.MeshStandardMaterial({ color: 0x333333, metalness: 0.3 });
+       const trackGeo = new THREE.BoxBufferGeometry(0.7, 0.1, 0.2);
+       const trackMat = new THREE.MeshStandardMaterial({ 
+           color: 0x333333, 
+           metalness: 0.3 
+       });
        const leftTrack = new THREE.Mesh(trackGeo, trackMat);
        leftTrack.position.set(-0.35, 0, 0.25);
-       leftTrack.castShadow = true;
        group.add(leftTrack);
        
        const rightTrack = new THREE.Mesh(trackGeo, trackMat);
        rightTrack.position.set(0.35, 0, 0.25);
-       rightTrack.castShadow = true;
        group.add(rightTrack);
        
        return group;
@@ -437,7 +494,7 @@ class ThreeDRenderer {
    }
    
    updateTanks(gameState) {
-       if (!this.isInitialized || !gameState) return false;
+       if (!this.isInitialized || !gameState || this.isDisposed) return false;
        
        const now = Date.now();
        if (now - this.lastRenderTime < this.renderThrottle) {
@@ -488,14 +545,28 @@ class ThreeDRenderer {
    }
    
    disposeMesh(mesh) {
+       if (!mesh) return;
+       
        if (mesh.isGroup) {
            mesh.children.forEach(child => {
                if (child.geometry) child.geometry.dispose();
-               if (child.material) child.material.dispose();
+               if (child.material) {
+                   if (Array.isArray(child.material)) {
+                       child.material.forEach(m => m.dispose());
+                   } else {
+                       child.material.dispose();
+                   }
+               }
            });
        } else {
            if (mesh.geometry) mesh.geometry.dispose();
-           if (mesh.material) mesh.material.dispose();
+           if (mesh.material) {
+               if (Array.isArray(mesh.material)) {
+                   mesh.material.forEach(m => m.dispose());
+               } else {
+                   mesh.material.dispose();
+               }
+           }
        }
    }
    
@@ -507,8 +578,17 @@ class ThreeDRenderer {
        }
        
        const center = this.hexTo3DPosition(q, r);
-       const geometry = new THREE.CylinderGeometry(this.hexSize + 0.08, this.hexSize + 0.08, 0.3, 6);
-       const material = new THREE.MeshBasicMaterial({ color: color, transparent: true, opacity: 0.5 });
+       const geometry = new THREE.CylinderBufferGeometry(
+           this.hexSize + 0.08, 
+           this.hexSize + 0.08, 
+           0.3, 
+           this.hexSegments
+       );
+       const material = new THREE.MeshBasicMaterial({ 
+           color: color, 
+           transparent: true, 
+           opacity: 0.5 
+       });
        const highlight = new THREE.Mesh(geometry, material);
        highlight.position.set(center.x, -0.1, center.z);
        this.scene.add(highlight);
@@ -524,9 +604,11 @@ class ThreeDRenderer {
    }
    
    addMuzzleFlash(q, r, direction) {
+       if (this.isDisposed) return;
+       
        const pos = this.hexTo3DPosition(q, r);
        
-       const flashGeo = new THREE.SphereGeometry(0.25, 8, 8);
+       const flashGeo = new THREE.SphereBufferGeometry(0.25, this.isMobile ? 6 : 8, this.isMobile ? 6 : 8);
        const flashMat = new THREE.MeshStandardMaterial({ 
            color: 0xffaa44, 
            emissive: 0xff6600,
@@ -559,9 +641,8 @@ class ThreeDRenderer {
    
    addShotAnimation(fromQ, fromR, toQ, toR, onComplete) {
        console.log('🎬 addShotAnimation START', { fromQ, fromR, toQ, toR });
-       console.log('🎬🎬🎬 addShotAnimation CALLED! 🎬🎬🎬');
-
-       if (!this.scene) {
+       
+       if (!this.scene || this.isDisposed) {
            console.error('No scene for animation');
            if (onComplete) onComplete();
            return;
@@ -570,10 +651,7 @@ class ThreeDRenderer {
        const from = this.hexTo3DPosition(fromQ, fromR);
        const to = this.hexTo3DPosition(toQ, toR);
        
-       console.log('Animation from:', from, 'to:', to);
-       
-       // Создаем яркий снаряд
-       const geometry = new THREE.SphereGeometry(0.2, 16, 16);
+       const geometry = new THREE.SphereBufferGeometry(0.2, this.isMobile ? 8 : 16, this.isMobile ? 8 : 16);
        const material = new THREE.MeshStandardMaterial({ 
            color: 0xff6600, 
            emissive: 0xff4400,
@@ -581,11 +659,9 @@ class ThreeDRenderer {
        });
        const projectile = new THREE.Mesh(geometry, material);
        projectile.position.set(from.x, 0.35, from.z);
-       projectile.castShadow = true;
        this.scene.add(projectile);
        
-       // Свечение вокруг снаряда
-       const glowGeo = new THREE.SphereGeometry(0.35, 8, 8);
+       const glowGeo = new THREE.SphereBufferGeometry(0.35, this.isMobile ? 4 : 8, this.isMobile ? 4 : 8);
        const glowMat = new THREE.MeshBasicMaterial({ 
            color: 0xff8844, 
            transparent: true, 
@@ -595,9 +671,18 @@ class ThreeDRenderer {
        projectile.add(glow);
        
        const startTime = performance.now();
-       const duration = 0.35;
+       const duration = this.isMobile ? 0.25 : 0.35;
        
        const animate = (now) => {
+           if (this.isDisposed) {
+               if (projectile.parent) this.scene.remove(projectile);
+               geometry.dispose();
+               material.dispose();
+               glowGeo.dispose();
+               glowMat.dispose();
+               return;
+           }
+           
            const elapsed = (now - startTime) / 1000;
            let t = Math.min(1, elapsed / duration);
            
@@ -612,7 +697,6 @@ class ThreeDRenderer {
            if (t < 1) {
                requestAnimationFrame(animate);
            } else {
-               // Взрыв при попадании
                this.addHitEffect(toQ, toR);
                
                if (projectile.parent) this.scene.remove(projectile);
@@ -629,11 +713,12 @@ class ThreeDRenderer {
    }
    
    addHitEffect(q, r) {
+       if (this.isDisposed) return;
+       
        const pos = this.hexTo3DPosition(q, r);
        console.log('💥 Hit effect at:', pos);
        
-       // Вспышка
-       const flashGeo = new THREE.SphereGeometry(0.35, 8, 8);
+       const flashGeo = new THREE.SphereBufferGeometry(0.35, this.isMobile ? 6 : 8, this.isMobile ? 6 : 8);
        const flashMat = new THREE.MeshStandardMaterial({ 
            color: 0xff4400, 
            emissive: 0xff2200,
@@ -643,10 +728,13 @@ class ThreeDRenderer {
        flash.position.set(pos.x, 0.3, pos.z);
        this.scene.add(flash);
        
-       // Искры
-       for (let i = 0; i < 8; i++) {
+       // ✅ Уменьшаем количество искр на мобильных
+       const sparkCount = this.isMobile ? 4 : 8;
+       for (let i = 0; i < sparkCount; i++) {
            setTimeout(() => {
-               const sparkGeo = new THREE.SphereGeometry(0.06, 4, 4);
+               if (this.isDisposed) return;
+               
+               const sparkGeo = new THREE.SphereBufferGeometry(0.06, this.isMobile ? 3 : 4, this.isMobile ? 3 : 4);
                const sparkMat = new THREE.MeshStandardMaterial({ color: 0xffaa66 });
                const spark = new THREE.Mesh(sparkGeo, sparkMat);
                spark.position.set(
@@ -676,9 +764,11 @@ class ThreeDRenderer {
    }
    
    addMissEffect(q, r) {
+       if (this.isDisposed) return;
+       
        const pos = this.hexTo3DPosition(q, r);
        
-       const dustGeo = new THREE.SphereGeometry(0.2, 6, 6);
+       const dustGeo = new THREE.SphereBufferGeometry(0.2, this.isMobile ? 4 : 6, this.isMobile ? 4 : 6);
        const dustMat = new THREE.MeshStandardMaterial({ color: 0xaa8866, emissive: 0x664422 });
        const dust = new THREE.Mesh(dustGeo, dustMat);
        dust.position.set(pos.x, 0.15, pos.z);
@@ -712,17 +802,28 @@ class ThreeDRenderer {
    }
    
    animate() {
-       if (!this.isInitialized) return;
+       if (this.isDisposed || !this.isInitialized) {
+           return;
+       }
+       
        this.animationFrameId = requestAnimationFrame(() => this.animate());
+       
        if (this.renderer && this.scene && this.camera) {
            this.renderer.render(this.scene, this.camera);
        }
    }
    
    dispose() {
+       console.log('🔄 Disposing ThreeDRenderer...');
+       
+       this.isDisposed = true;
+       
        if (this.animationFrameId) {
            cancelAnimationFrame(this.animationFrameId);
+           this.animationFrameId = null;
        }
+       
+       this.isInitialized = false;
        
        this.boundHandlers.forEach((handler, name) => {
            if (name === 'resize') {
@@ -745,7 +846,16 @@ class ThreeDRenderer {
        
        if (this.renderer) {
            this.renderer.dispose();
+           if (this.renderer.domElement && this.renderer.domElement.parentNode) {
+               this.renderer.domElement.parentNode.removeChild(this.renderer.domElement);
+           }
+           this.renderer = null;
        }
+       
+       this.scene = null;
+       this.camera = null;
+       
+       console.log('✅ ThreeDRenderer disposed');
    }
 }
 

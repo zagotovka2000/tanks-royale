@@ -15,17 +15,14 @@ const io = socketIo(server, {
     pingInterval: 25000
 });
 
-// Middleware
 app.use(express.json({ limit: '1mb' }));
 app.use(express.urlencoded({ extended: true, limit: '1mb' }));
 
-// Логирование запросов для отладки
 app.use((req, res, next) => {
     console.log(`${req.method} ${req.url}`);
     next();
 });
 
-// Статические файлы
 app.use('/css', express.static(path.join(__dirname, 'public/css'), {
     contentType: 'text/css',
     extensions: ['css']
@@ -226,8 +223,6 @@ io.on('connection', (socket) => {
         result.attackerId = player.id;
         
         console.log('Shoot result:', result);
-        
-        // ВАЖНО: Рассылаем результат ВСЕМ клиентам
         io.emit('shootResult', result);
         
         if (result.success) {

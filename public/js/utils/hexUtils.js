@@ -1,6 +1,6 @@
 // public/js/utils/HexUtils.js
 
-window.HexUtils = {
+const HexUtils = {
    directions: [
        { q: 0, r: -1, name: 'up' },
        { q: 1, r: -1, name: 'up-right' },
@@ -48,21 +48,17 @@ window.HexUtils = {
        }));
    },
    
-   // Получить только доступные для движения соседи
    getValidMoveNeighbors(q, r, walls, units, cells) {
        const neighbors = this.getNeighbors(q, r);
        const validNeighbors = [];
        
        for (const neighbor of neighbors) {
-           // Проверка существования клетки
            const cellExists = cells?.some(cell => cell.q === neighbor.q && cell.r === neighbor.r);
            if (!cellExists) continue;
            
-           // Проверка стены
            const hasWall = walls?.some(w => w.q === neighbor.q && w.r === neighbor.r);
            if (hasWall) continue;
            
-           // Проверка занятости
            const isOccupied = units?.some(u => u.active && u.q === neighbor.q && u.r === neighbor.r);
            if (isOccupied) continue;
            
@@ -82,3 +78,13 @@ window.HexUtils = {
        this.distanceCache.clear();
    }
 };
+
+// Поддержка CommonJS для сервера
+if (typeof module !== 'undefined' && module.exports) {
+   module.exports = HexUtils;
+}
+
+// Поддержка браузера
+if (typeof window !== 'undefined') {
+   window.HexUtils = HexUtils;
+}

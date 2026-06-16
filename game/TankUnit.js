@@ -17,7 +17,7 @@ class TankUnit {
        this.kills = 0;
        this.isPlayer = false;
        this.hiddenInFog = hiddenInFog;
-       this.range = range; // Дальность стрельбы
+       this.range = range;
    }
    
    setDirection(direction) {

@@ -2,6 +2,9 @@ const { TankUnit } = require('./TankUnit');
 const { FogOfWar } = require('./FogOfWar');
 const { EffectManager } = require('./EffectManager');
 
+// Используем утилиты для работы с гексами
+const HexUtils = require('../public/js/utils/HexUtils.js');
+
 // 6 направлений для гексагональной сетки
 const DIRECTIONS = [
     { q: 1, r: 0, s: -1, name: 'right' },
@@ -109,35 +112,31 @@ class TankGame {
         }
     }
     
-// В файле game/TankGame.js, найдите метод initializeUnits и замените на:
-
-initializeUnits() {
-   // Оставляем только ОДНОГО врага для тестирования
-   const enemyPositions = [
-       { q: -this.radius + 2, r: 1, name: 'Враг', color: '#e94560', type: 'medium' }
-   ];
-   
-   this.enemies = enemyPositions.map((pos, i) => 
-       new TankUnit(`enemy${i}`, pos.name, 'enemy', pos.q, pos.r, 100, 35, pos.color, pos.type, null, false, 5)
-   );
-   
-   // Убираем союзников, чтобы не мешали
-   this.allies = [];
-   
-   // Отключаем туман войны для тестирования
-   this.fogOfWar = new FogOfWar(this.radius);
-   // Открываем всю карту
-   for (let q = -this.radius; q <= this.radius; q++) {
-       for (let r = -this.radius; r <= this.radius; r++) {
-           const s = -q - r;
-           if (Math.abs(q) <= this.radius && Math.abs(r) <= this.radius && Math.abs(s) <= this.radius) {
-               this.fogOfWar.revealCell(q, r);
-           }
-       }
-   }
-   
-   console.log(`Создан 1 враг на позиции (${enemyPositions[0].q}, ${enemyPositions[0].r})`);
-}
+    initializeUnits() {
+        // Оставляем только ОДНОГО врага для тестирования
+        const enemyPositions = [
+            { q: -this.radius + 2, r: 1, name: 'Враг', color: '#e94560', type: 'medium' }
+        ];
+        
+        this.enemies = enemyPositions.map((pos, i) => 
+            new TankUnit(`enemy${i}`, pos.name, 'enemy', pos.q, pos.r, 100, 35, pos.color, pos.type, null, false, 5)
+        );
+        
+        this.allies = [];
+        
+        // Открываем всю карту для тестирования
+        this.fogOfWar = new FogOfWar(this.radius);
+        for (let q = -this.radius; q <= this.radius; q++) {
+            for (let r = -this.radius; r <= this.radius; r++) {
+                const s = -q - r;
+                if (Math.abs(q) <= this.radius && Math.abs(r) <= this.radius && Math.abs(s) <= this.radius) {
+                    this.fogOfWar.revealCell(q, r);
+                }
+            }
+        }
+        
+        console.log(`Создан 1 враг на позиции (${enemyPositions[0].q}, ${enemyPositions[0].r})`);
+    }
     
     addPlayer(telegramId, name) {
         if (this.players.length > 0) {
@@ -194,29 +193,17 @@ initializeUnits() {
         return neighbors;
     }
     
+    // Используем HexUtils вместо дублирования
     areHexAdjacent(q1, r1, q2, r2) {
-        const distance = this.hexDistance(q1, r1, q2, r2);
-        return distance === 1;
+        return HexUtils.areAdjacent(q1, r1, q2, r2);
     }
     
     hexDistance(q1, r1, q2, r2) {
-        const dq = Math.abs(q1 - q2);
-        const dr = Math.abs(r1 - r2);
-        const ds = Math.abs((-q1 - r1) - (-q2 - r2));
-        return (dq + dr + ds) / 2;
+        return HexUtils.distance(q1, r1, q2, r2);
     }
     
     getHexDirection(fromQ, fromR, toQ, toR) {
-        const dq = toQ - fromQ;
-        const dr = toR - fromR;
-        
-        if (dq === 1 && dr === 0) return 'right';
-        if (dq === 1 && dr === -1) return 'up-right';
-        if (dq === 0 && dr === -1) return 'up';
-        if (dq === -1 && dr === 0) return 'left';
-        if (dq === -1 && dr === 1) return 'down-left';
-        if (dq === 0 && dr === 1) return 'down';
-        return 'right';
+        return HexUtils.getDirection(fromQ, fromR, toQ, toR);
     }
     
     getHexLine(q1, r1, q2, r2) {
@@ -324,160 +311,157 @@ initializeUnits() {
         }
     }
     
-// В TankGame.js - добавим больше отладки в shootAtCell
-
-shootAtCell(attackerId, targetQ, targetR) {
-   console.log(`shootAtCell called: attacker ${attackerId} -> (${targetQ}, ${targetR})`);
-   
-   const attacker = this.getAllUnits().find(u => u.id === attackerId);
-   if (!attacker || !attacker.active) {
-       console.log('Attacker not found or inactive');
-       return { success: false, message: "Неактивен" };
-   }
-   
-   const cooldown = this.getRemainingCooldown(attackerId);
-   if (cooldown > 0) {
-       console.log('Cooldown:', cooldown);
-       return { success: false, message: `Перезарядка: ${Math.ceil(cooldown/1000)}с` };
-   }
-   
-   const distance = this.hexDistance(attacker.q, attacker.r, targetQ, targetR);
-   if (distance > (attacker.range || 5)) {
-       console.log('Distance too far:', distance);
-       return { success: false, message: `Слишком далеко (${distance})` };
-   }
-   
-   if (!this.hasLineOfSight(attacker.q, attacker.r, targetQ, targetR)) {
-       console.log('No line of sight');
-       return { success: false, message: "На пути стена или лес" };
-   }
-   
-   // Ищем цель на указанной клетке
-   let target = this.getAllUnits().find(u => 
-       u.active && u.team !== attacker.team && u.q === targetQ && u.r === targetR
-   );
-   
-   this.lastActionTime.set(attackerId, Date.now());
-   
-   const targetCell = this.cells.get(`${targetQ},${targetR}`);
-   let damage = attacker.damage;
-   let hitChance = 1.0;
-   
-   // Лес укрывает
-   if (targetCell && targetCell.terrain === 'forest') {
-       hitChance = 0.7;
-       if (Math.random() > hitChance) {
-           console.log('Missed due to forest');
-           return {
-               success: true,
-               hit: false,
-               killed: false,
-               message: `🌳 Лес укрыл цель! Промах!`,
-               targetQ: targetQ,
-               targetR: targetR,
-               fromQ: attacker.q,
-               fromR: attacker.r,
-               attackerId: attacker.id
-           };
-       }
-   }
-   
-   // Стрельба по стене
-   if (!target) {
-       const wallDestroyed = this.damageWall(targetQ, targetR);
-       console.log('Shot at wall, destroyed:', wallDestroyed);
-       return {
-           success: true,
-           hit: false,
-           wallDestroyed: wallDestroyed,
-           message: wallDestroyed ? "🧱 Стена разрушена!" : "💨 Промах!",
-           targetQ: targetQ,
-           targetR: targetR,
-           fromQ: attacker.q,
-           fromR: attacker.r,
-           attackerId: attacker.id
-       };
-   }
-   
-   // Попадание по врагу
-   console.log(`Hit ${target.name} for ${damage} damage`);
-   target.hp -= damage;
-   
-   if (target.hp <= 0) {
-       target.active = false;
-       attacker.kills++;
-       this.effectManager.addSmoke(target.q, target.r, target.name);
-       console.log(`${target.name} destroyed!`);
-       return {
-           success: true,
-           hit: true,
-           killed: true,
-           message: `💀 ${target.name} уничтожен!`,
-           targetX: target.q,
-           targetY: target.r,
-           fromQ: attacker.q,
-           fromR: attacker.r,
-           attackerId: attacker.id
-       };
-   }
-   
-   return {
-       success: true,
-       hit: true,
-       killed: false,
-       message: `💥 Попадание в ${target.name}! -${damage} HP`,
-       targetX: target.q,
-       targetY: target.r,
-       fromQ: attacker.q,
-       fromR: attacker.r,
-       attackerId: attacker.id
-   };
-}
-    
-    botAction() {
-      const player = this.getFirstPlayer();
-      if (!player || !player.active) return [];
+    shootAtCell(attackerId, targetQ, targetR) {
+      console.log(`shootAtCell called: attacker ${attackerId} -> (${targetQ}, ${targetR})`);
       
-      const results = []; // Массив для хранения результатов выстрелов
+      const attacker = this.getAllUnits().find(u => u.id === attackerId);
+      if (!attacker || !attacker.active) {
+          console.log('Attacker not found or inactive');
+          return { success: false, message: "Неактивен" };
+      }
       
-      for (let enemy of this.enemies) {
-          if (!enemy.active) continue;
-          
-          const cooldown = this.getRemainingCooldown(enemy.id);
-          if (cooldown > 0) continue;
-          
-          const distance = this.hexDistance(enemy.q, enemy.r, player.q, player.r);
-          
-          if (distance <= 5 && Math.random() < 0.45) {
-              // Сохраняем координаты стреляющего
-              const fromQ = enemy.q;
-              const fromR = enemy.r;
-              const result = this.shootAtCell(enemy.id, player.q, player.r);
-              
-              // Добавляем координаты стреляющего в результат
-              if (result) {
-                  result.fromQ = fromQ;
-                  result.fromR = fromR;
-                  result.attackerId = enemy.id;
-                  results.push(result);
-              }
-          } else if (Math.random() < 0.35) {
-              const neighbors = this.getNeighbors(enemy.q, enemy.r);
-              const validNeighbors = neighbors.filter(n => {
-                  const occupied = this.getAllUnits().some(u => u.active && u.q === n.q && u.r === n.r);
-                  const hasWall = this.isWall(n.q, n.r);
-                  return !occupied && !hasWall;
-              });
-              
-              if (validNeighbors.length > 0) {
-                  const randomNeighbor = validNeighbors[Math.floor(Math.random() * validNeighbors.length)];
-                  this.moveToCell(enemy.id, randomNeighbor.q, randomNeighbor.r);
-              }
+      const cooldown = this.getRemainingCooldown(attackerId);
+      if (cooldown > 0) {
+          console.log('Cooldown:', cooldown);
+          return { success: false, message: `Перезарядка: ${Math.ceil(cooldown/1000)}с` };
+      }
+      
+      const distance = this.hexDistance(attacker.q, attacker.r, targetQ, targetR);
+      if (distance > (attacker.range || 5)) {
+          console.log('Distance too far:', distance);
+          return { success: false, message: `Слишком далеко (${distance})` };
+      }
+      
+      if (!this.hasLineOfSight(attacker.q, attacker.r, targetQ, targetR)) {
+          console.log('No line of sight');
+          return { success: false, message: "На пути стена или лес" };
+      }
+      
+      this.lastActionTime.set(attackerId, Date.now());
+      
+      // Ищем живого врага на клетке
+      let target = this.getAllUnits().find(u => 
+          u.active && u.team !== attacker.team && u.q === targetQ && u.r === targetR
+      );
+      
+      const targetCell = this.cells.get(`${targetQ},${targetR}`);
+      let damage = attacker.damage;
+      let hitChance = 1.0;
+      
+      // Лес укрывает
+      if (targetCell && targetCell.terrain === 'forest') {
+          hitChance = 0.7;
+          if (Math.random() > hitChance) {
+              console.log('Missed due to forest');
+              return {
+                  success: true,
+                  hit: false,
+                  killed: false,
+                  message: `🌳 Лес укрыл цель! Промах!`,
+                  targetQ: targetQ,
+                  targetR: targetR,
+                  fromQ: attacker.q,
+                  fromR: attacker.r,
+                  attackerId: attacker.id
+              };
           }
       }
       
-      return results; // Возвращаем массив результатов выстрелов
+      // Стрельба по стене (если нет живого врага)
+      if (!target) {
+          const wallDestroyed = this.damageWall(targetQ, targetR);
+          console.log('Shot at wall, destroyed:', wallDestroyed);
+          return {
+              success: true,
+              hit: false,
+              wallDestroyed: wallDestroyed,
+              message: wallDestroyed ? "🧱 Стена разрушена!" : "💨 Промах!",
+              targetQ: targetQ,
+              targetR: targetR,
+              fromQ: attacker.q,
+              fromR: attacker.r,
+              attackerId: attacker.id
+          };
+      }
+      
+      // Попадание по врагу
+      console.log(`Hit ${target.name} for ${damage} damage`);
+      target.hp -= damage;
+      
+      if (target.hp <= 0) {
+          target.active = false;
+          attacker.kills++;
+          this.effectManager.addSmoke(target.q, target.r, target.name);
+          console.log(`${target.name} destroyed!`);
+          return {
+              success: true,
+              hit: true,
+              killed: true,
+              message: `💀 ${target.name} уничтожен!`,
+              targetX: target.q,
+              targetY: target.r,
+              fromQ: attacker.q,
+              fromR: attacker.r,
+              attackerId: attacker.id
+          };
+      }
+      
+      return {
+          success: true,
+          hit: true,
+          killed: false,
+          message: `💥 Попадание в ${target.name}! -${damage} HP`,
+          targetX: target.q,
+          targetY: target.r,
+          fromQ: attacker.q,
+          fromR: attacker.r,
+          attackerId: attacker.id
+      };
   }
+    
+    botAction() {
+        const player = this.getFirstPlayer();
+        if (!player || !player.active) return [];
+        
+        const results = [];
+        
+        for (let enemy of this.enemies) {
+            if (!enemy.active) continue;
+            
+            const cooldown = this.getRemainingCooldown(enemy.id);
+            if (cooldown > 0) continue;
+            
+            const distance = this.hexDistance(enemy.q, enemy.r, player.q, player.r);
+            
+            if (distance <= 5 && Math.random() < 0.45) {
+                const fromQ = enemy.q;
+                const fromR = enemy.r;
+                const result = this.shootAtCell(enemy.id, player.q, player.r);
+                
+                if (result) {
+                    result.fromQ = fromQ;
+                    result.fromR = fromR;
+                    result.attackerId = enemy.id;
+                    results.push(result);
+                }
+            } else if (Math.random() < 0.35) {
+                const neighbors = this.getNeighbors(enemy.q, enemy.r);
+                const validNeighbors = neighbors.filter(n => {
+                    const occupied = this.getAllUnits().some(u => u.active && u.q === n.q && u.r === n.r);
+                    const hasWall = this.isWall(n.q, n.r);
+                    return !occupied && !hasWall;
+                });
+                
+                if (validNeighbors.length > 0) {
+                    const randomNeighbor = validNeighbors[Math.floor(Math.random() * validNeighbors.length)];
+                    this.moveToCell(enemy.id, randomNeighbor.q, randomNeighbor.r);
+                }
+            }
+        }
+        
+        return results;
+    }
+    
     getStateForPlayer(playerId) {
         const player = this.players.find(p => p.id === playerId);
         if (!player) return null;

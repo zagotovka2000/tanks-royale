@@ -26,7 +26,7 @@ GameController.prototype.getRemainingCooldown = function() {
    return this.gameInstance.getRemainingCooldown();
 };
 
-// ✅ ОБНОВЛЕННЫЙ moveTo С НАПРАВЛЕНИЕМ
+// ✅ ИСПРАВЛЕННЫЙ moveTo С ПРИНУДИТЕЛЬНЫМ СОХРАНЕНИЕМ НАПРАВЛЕНИЯ
 GameController.prototype.moveTo = function(q, r) {
     if (!this.gameInstance) return false;
     var player = this.gameInstance.getFirstPlayer();
@@ -35,20 +35,17 @@ GameController.prototype.moveTo = function(q, r) {
     var fromQ = player.q;
     var fromR = player.r;
     
-    // ✅ ПРОВЕРЯЕМ, МОЖЕТ ЛИ ТАНК ДВИГАТЬСЯ
+    // Проверяем, может ли танк двигаться
     var canMove = this.gameInstance.canMoveToCell(player.id, q, r);
     if (!canMove) {
         console.warn('❌ Движение невозможно');
-        // Проверяем причину
         if (this.gameInstance.getRemainingCooldown() > 0) {
-            console.warn('⏱️ Причина: перезарядка');
             if (this.scene && this.scene.inputController) {
                 this.scene.inputController.showMessage('⏱️ Перезарядка! Подождите 2 секунды');
             }
         } else {
             var isAdjacent = HexUtils.areAdjacent(player.q, player.r, q, r);
             if (!isAdjacent) {
-                console.warn('❌ Причина: клетка не является соседней');
                 if (this.scene && this.scene.inputController) {
                     this.scene.inputController.showMessage('❌ Можно двигаться только на соседнюю клетку!');
                 }
@@ -57,7 +54,6 @@ GameController.prototype.moveTo = function(q, r) {
                     return u.active && u !== player && u.q === q && u.r === r;
                 });
                 if (occupied) {
-                    console.warn('❌ Причина: клетка занята другим юнитом');
                     if (this.scene && this.scene.inputController) {
                         this.scene.inputController.showMessage('❌ Клетка занята!');
                     }
@@ -83,13 +79,20 @@ GameController.prototype.moveTo = function(q, r) {
     if (this.scene) {
         var sprite = this.scene.tankSprites.get(player.id);
         if (sprite) {
-            // ✅ ПЕРЕДАЕМ НАПРАВЛЕНИЕ В АНИМАЦИЮ
             var self = this;
+            // ✅ ПЕРЕДАЕМ НАПРАВЛЕНИЕ В АНИМАЦИЮ
             sprite.animateMove(fromQ, fromR, q, r, 3000, function() {
                 console.log('✅ Анимация завершена, направление:', direction);
+                // ✅ ПРИНУДИТЕЛЬНО СОХРАНЯЕМ НАПРАВЛЕНИЕ
+                sprite.unit.direction = direction;
+                sprite.updateBarrel();
                 // ✅ ОБНОВЛЯЕМ СОСТОЯНИЕ
                 self.updateGameState();
                 self.updateUI();
+                // ✅ ПРИНУДИТЕЛЬНО ОБНОВЛЯЕМ СЦЕНУ
+                if (self.scene) {
+                    self.scene.updateTanks(self.gameState);
+                }
             });
             console.log('🎬 Запущена анимация движения, направление:', direction);
         } else {

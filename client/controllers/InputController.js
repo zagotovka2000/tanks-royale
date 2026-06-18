@@ -190,72 +190,68 @@ InputController.prototype.toggleMode = function() {
    }
 };
 
-// ✅ ОБНОВЛЕННЫЙ highlightMoveArea
+// ✅ ИСПРАВЛЕННЫЙ highlightMoveArea - ЖЕЛТЫЙ ЦЕНТР, ЗЕЛЕНЫЕ СОСЕДИ
 InputController.prototype.highlightMoveArea = function() {
-   var state = this.scene.gameState;
-   if (!state || !state.myTank) return;
-   
-   var myTank = state.myTank;
-   if (!myTank.active) {
-       this.showMessage('⚠️ Ваш танк уничтожен');
-       return;
-   }
-   
-   console.log('🚶 highlightMoveArea() - танк на позиции:', myTank.q, myTank.r);
-   
-   // Собираем все активные юниты (для проверки занятости клеток)
-   var allUnits = [];
-   if (state.myTank && state.myTank.active) allUnits.push(state.myTank);
-   if (state.enemies) {
-       for (var i = 0; i < state.enemies.length; i++) {
-           if (state.enemies[i].active) allUnits.push(state.enemies[i]);
-       }
-   }
-   
-   console.log('👾 Все юниты:', allUnits.map(function(u) { return u.q + ',' + u.r; }));
-   
-   // ✅ ПОЛУЧАЕМ ВСЕ 6 СОСЕДНИХ КЛЕТОК
-   var neighbors = HexUtils.getNeighbors(myTank.q, myTank.r);
-   console.log('📌 Соседи (6 направлений):', neighbors.map(function(n) { return n.q + ',' + n.r; }));
-   
-   var valid = [];
-   
-   for (var i = 0; i < neighbors.length; i++) {
-       var n = neighbors[i];
-       
-       // Проверяем, что клетка существует на карте
-       var cellExists = state.cells.some(function(c) {
-           return c.q === n.q && c.r === n.r;
-       });
-       if (!cellExists) {
-           console.log('❌ Клетка', n.q, n.r, 'не существует на карте');
-           continue;
-       }
-       
-       // Проверяем, не занята ли клетка
-       var occupied = allUnits.some(function(u) {
-           return u.active && u.q === n.q && u.r === n.r;
-       });
-       if (occupied) {
-           console.log('❌ Клетка', n.q, n.r, 'занята');
-           continue;
-       }
-       
-       console.log('✅ Клетка', n.q, n.r, 'доступна');
-       valid.push(n);
-   }
-   
-   this.validMoveNeighbors = valid;
-   console.log('📊 Доступно клеток для движения:', valid.length);
-   
-   // ✅ ПОДСВЕЧИВАЕМ ВСЕ ДОСТУПНЫЕ КЛЕТКИ
-   if (valid.length > 0) {
-       this.scene.hexGrid.highlightMoveArea(myTank.q, myTank.r, valid);
-       this.showMessage('🚶 Доступно клеток: ' + valid.length);
-   } else {
-       console.warn('⚠️ Нет доступных клеток для движения');
-       this.showMessage('⚠️ Нет доступных клеток для движения');
-   }
+    var state = this.scene.gameState;
+    if (!state || !state.myTank) return;
+    
+    var myTank = state.myTank;
+    if (!myTank.active) {
+        this.showMessage('⚠️ Ваш танк уничтожен');
+        return;
+    }
+    
+    console.log('🚶 highlightMoveArea() - танк на позиции:', myTank.q, myTank.r);
+    
+    // Собираем все активные юниты
+    var allUnits = [];
+    if (state.myTank && state.myTank.active) allUnits.push(state.myTank);
+    if (state.enemies) {
+        for (var i = 0; i < state.enemies.length; i++) {
+            if (state.enemies[i].active) allUnits.push(state.enemies[i]);
+        }
+    }
+    
+    // ✅ ПОЛУЧАЕМ ВСЕ 6 СОСЕДНИХ КЛЕТОК
+    var neighbors = HexUtils.getNeighbors(myTank.q, myTank.r);
+    var valid = [];
+    
+    for (var i = 0; i < neighbors.length; i++) {
+        var n = neighbors[i];
+        
+        // Проверяем, что клетка существует на карте
+        var cellExists = state.cells.some(function(c) {
+            return c.q === n.q && c.r === n.r;
+        });
+        if (!cellExists) continue;
+        
+        // Проверяем, не занята ли клетка
+        var occupied = allUnits.some(function(u) {
+            return u.active && u.q === n.q && u.r === n.r;
+        });
+        if (occupied) continue;
+        
+        valid.push(n);
+    }
+    
+    this.validMoveNeighbors = valid;
+    console.log('📊 Доступно клеток для движения:', valid.length);
+    
+    // ✅ ПОДСВЕЧИВАЕМ ВСЕ ДОСТУПНЫЕ КЛЕТКИ
+    if (valid.length > 0) {
+        // Сначала очищаем старые подсветки
+        this.scene.hexGrid.clearHighlight();
+        // Подсвечиваем центр (свой танк) - желтым
+        this.scene.hexGrid.highlightHex(myTank.q, myTank.r, 0xffdd44);
+        // Подсвечиваем доступные клетки - зеленым
+        for (var i = 0; i < valid.length; i++) {
+            this.scene.hexGrid.highlightHex(valid[i].q, valid[i].r, 0x44ff44);
+        }
+        this.showMessage('🚶 Доступно клеток: ' + valid.length);
+    } else {
+        console.warn('⚠️ Нет доступных клеток для движения');
+        this.showMessage('⚠️ Нет доступных клеток для движения');
+    }
 };
 
 // ✅ ОБНОВЛЕННЫЙ selectTarget

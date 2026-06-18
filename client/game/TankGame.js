@@ -133,14 +133,14 @@ TankGame.prototype.canMoveToCell = function(unitId, targetQ, targetR) {
     return true;
 };
 
-// ✅ ОБНОВЛЕННЫЙ moveToCell - С ВЫЧИСЛЕНИЕМ НАПРАВЛЕНИЯ
+// ✅ ИСПРАВЛЕННЫЙ moveToCell - ПРАВИЛЬНО ВЫЧИСЛЯЕТ НАПРАВЛЕНИЕ
 TankGame.prototype.moveToCell = function(unitId, targetQ, targetR) {
     var unit = this.getAllUnits().find(function(u) {
         return u.id === unitId && u.active;
     });
     if (!unit) return false;
 
-    // ✅ УБИРАЕМ ПРОВЕРКУ КУЛДАУНА ДЛЯ ДВИЖЕНИЯ
+    // Убираем проверку кулдауна для движения
     // if (this.getRemainingCooldown() > 0) return false;
 
     if (!HexUtils.areAdjacent(unit.q, unit.r, targetQ, targetR)) return false;
@@ -154,7 +154,8 @@ TankGame.prototype.moveToCell = function(unitId, targetQ, targetR) {
     var direction = HexUtils.getDirection(unit.q, unit.r, targetQ, targetR);
     unit.setDirection(direction);
     unit.moveTo(targetQ, targetR);
-    this.lastActionTime = Date.now();
+    // ✅ НЕ ОБНОВЛЯЕМ lastActionTime ДЛЯ ДВИЖЕНИЯ
+    // this.lastActionTime = Date.now(); // УБИРАЕМ!
 
     console.log('✅ Танк', unitId, 'перемещен на', targetQ, targetR, 'направление:', direction);
     return true;

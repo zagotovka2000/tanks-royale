@@ -13,6 +13,7 @@ function TankUnit(id, name, team, q, r, hp, damage, color, type, range) {
    this.type = type || 'medium';
    this.range = range || 5;
    this.active = true;
+   // ✅ ИЗНАЧАЛЬНОЕ НАПРАВЛЕНИЕ - ВПРАВО
    this.direction = 'right';
    this.kills = 0;
    this.isPlayer = false;
@@ -49,7 +50,7 @@ TankUnit.prototype.toJSON = function() {
        hp: this.hp,
        maxHp: this.maxHp,
        kills: this.kills,
-       direction: this.direction,
+       direction: this.direction,  // ✅ СОХРАНЯЕМ НАПРАВЛЕНИЕ
        color: this.color,
        type: this.type,
        team: this.team,

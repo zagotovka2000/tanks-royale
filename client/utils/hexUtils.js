@@ -21,19 +21,25 @@ var HexUtils = {
        return this.distance(q1, r1, q2, r2) === 1;
    },
 
+   // ✅ УЛУЧШЕННЫЙ getDirection С ПРОВЕРКОЙ
    getDirection: function(fromQ, fromR, toQ, toR) {
        var dq = toQ - fromQ;
        var dr = toR - fromR;
+       
+       // Проверяем все направления
        for (var i = 0; i < this.directions.length; i++) {
            var d = this.directions[i];
            if (d.q === dq && d.r === dr) {
                return d.name;
            }
        }
+       
+       // Если не нашли - возвращаем 'right' по умолчанию
+       console.warn('⚠️ Неизвестное направление:', dq, dr, 'используем right');
        return 'right';
    },
 
-   // ✅ ОБНОВЛЕННЫЙ getNeighbors С ЛОГИРОВАНИЕМ
+   // ✅ getNeighbors с именами направлений
    getNeighbors: function(q, r) {
        var result = [];
        for (var i = 0; i < this.directions.length; i++) {
@@ -44,7 +50,6 @@ var HexUtils = {
                name: d.name
            });
        }
-       console.log('📌 getNeighbors для', q, r, ':', result.map(function(n) { return n.q + ',' + n.r; }));
        return result;
    },
 

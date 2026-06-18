@@ -355,7 +355,7 @@ var GameScene = new Phaser.Class({
        }
    },
    
-   // ✅ ОБНОВЛЕННЫЙ updateTanks - ПЕРЕДАЕТ НАПРАВЛЕНИЕ
+   // ✅ ИСПРАВЛЕННЫЙ updateTanks - ВЫЗЫВАЕТ updateBarrel() ПРИ СОЗДАНИИ
    updateTanks: function(state) {
        if (!state) return;
        
@@ -398,6 +398,8 @@ var GameScene = new Phaser.Class({
                console.log('🆕 Создаем новый танк:', id);
                var sprite = new TankSprite(self, value.unit, self.hexGrid);
                sprite.create();
+               // ✅ УБЕЖДАЕМСЯ, ЧТО БАШНЯ СМОТРИТ В НУЖНУЮ СТОРОНУ
+               sprite.updateBarrel();
                self.tankSprites.set(id, sprite);
            }
        });

@@ -1,12 +1,14 @@
 /* tanks-royale/
-├── index.html                    # Точка входа
 ├── server/
 │   └── server.js                 # Сервер (Socket.io)
 ├── client/
+│   ├── main.js
 │   ├── game/
 │   │   ├── TankGame.js          # Логика игры (серверная + клиентская)
 │   │   ├── TankUnit.js          # Модель танка
 │   │   └── EffectManager.js     # Эффекты (дым)
+│   │   ├── FogOfWar.js          
+│   │   └── TankGame.js     
 │   ├── scenes/
 │   │   ├── BootScene.js         # Загрузка ресурсов
 │   │   └── GameScene.js         # Основная сцена с картой
@@ -17,8 +19,9 @@
 │   │   ├── GameController.js    # Управление игрой
 │   │   └── InputController.js   # Ввод (клики по гексам)
 │   └── utils/
-│       └── HexUtils.js          # Утилиты для гексов (общие)
+│       └── hexUtils.js          # Утилиты для гексов (общие)
 ├── public/
+│   ├── index.html
 │   ├── css/
 │   │   └── styles.css           # Стили
 │   └── assets/

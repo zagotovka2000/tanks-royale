@@ -1,4 +1,4 @@
-// client/objects/TankSprite.js - ИСПРАВЛЕННАЯ ВЕРСИЯ
+// client/objects/TankSprite.js - ИСПРАВЛЕННАЯ ОРИЕНТАЦИЯ СТВОЛА
 
 function TankSprite(scene, unit, hexGrid) {
    this.scene = scene;
@@ -20,6 +20,10 @@ function TankSprite(scene, unit, hexGrid) {
    this.moveSound = null;
    this.soundLoaded = false;
    this.onComplete = null;
+   
+   this.barrel = null;
+   this.currentDirection = unit.direction || 'right';
+   this.turretGroup = null;
 }
 
 TankSprite.prototype.loadMoveSound = function() {
@@ -65,7 +69,7 @@ TankSprite.prototype.create = function() {
    this.container.add(shadow);
    
    // ============================================
-   // 2. КОРПУС ТАНКА
+   // 2. КОРПУС ТАНКА (НЕ ПОВОРАЧИВАЕТСЯ)
    // ============================================
    var body = this.scene.make.graphics({});
    body.fillStyle(color.color, 1);
@@ -120,61 +124,60 @@ TankSprite.prototype.create = function() {
    this.container.add(wheel);
    
    // ============================================
-   // 5. БАШНЯ
+   // 5. БАШНЯ + СТВОЛ (В КОНТЕЙНЕРЕ ДЛЯ ПОВОРОТА)
    // ============================================
+   this.turretGroup = this.scene.add.container(0, -s * 0.05);
+   this.container.add(this.turretGroup);
+   
+   // Башня
    var turret = this.scene.make.graphics({});
    var turretColor = this.lightenColor(color.color, 50);
    turret.fillStyle(turretColor, 1);
-   turret.fillCircle(0, -s * 0.05, s * 0.65);
+   turret.fillCircle(0, 0, s * 0.65);
    turret.fillStyle(0xffffff, 0.08);
-   turret.fillCircle(-s * 0.15, -s * 0.2, s * 0.3);
+   turret.fillCircle(-s * 0.15, -s * 0.15, s * 0.3);
    turret.fillStyle(0x000000, 0.1);
    turret.fillCircle(s * 0.15, s * 0.15, s * 0.35);
-   this.container.add(turret);
+   this.turretGroup.add(turret);
    
    // ============================================
-   // 6. СТВОЛ (ДЛИННЫЙ, ТОРЧИТ ВПЕРЕД)
+   // 6. СТВОЛ - ПРАВИЛЬНАЯ ОРИЕНТАЦИЯ (ВПРАВО)
    // ============================================
-   var angle = this.getAngle(this.unit.direction || 'right');
    var barrel = this.scene.make.graphics({});
-   
    var barrelLength = s * 1.2;
    var barrelWidth = s * 0.1;
    
-   // Основной ствол
+   // ✅ СТВОЛ РИСУЕМ ГОРИЗОНТАЛЬНО (ВПРАВО)
+   // Основной ствол - теперь горизонтальный
    barrel.fillStyle(0x444444, 1);
-   barrel.fillRoundedRect(-barrelWidth/2, -s * 0.3, barrelWidth, barrelLength, 3);
+   barrel.fillRoundedRect(0, -barrelWidth/2, barrelLength, barrelWidth, 3);
    
    // Наконечник ствола
    barrel.fillStyle(0x333333, 1);
-   barrel.fillRoundedRect(-barrelWidth/2 - 0.02 * s, -s * 0.3, barrelWidth + 0.04 * s, s * 0.2, 2);
+   barrel.fillRoundedRect(barrelLength - s * 0.2, -barrelWidth/2 - 0.02 * s, s * 0.2, barrelWidth + 0.04 * s, 2);
    
-   // Дуло (самый кончик)
+   // Дуло
    barrel.fillStyle(0x222222, 1);
-   barrel.fillRoundedRect(-barrelWidth/2 - 0.01 * s, -s * 0.3 + s * 0.15, barrelWidth + 0.02 * s, s * 0.08, 2);
+   barrel.fillRoundedRect(barrelLength - s * 0.08, -barrelWidth/2 - 0.01 * s, s * 0.08, barrelWidth + 0.02 * s, 2);
    
    // Блик на стволе
    barrel.fillStyle(0x888888, 0.2);
-   barrel.fillRoundedRect(-barrelWidth/4, -s * 0.25, barrelWidth/2, s * 0.6, 2);
+   barrel.fillRoundedRect(s * 0.1, -barrelWidth/4, s * 0.6, barrelWidth/2, 2);
    
-   var barrelOffset = s * 0.4;
-   barrel.setPosition(
-       Math.cos(angle) * barrelOffset,
-       Math.sin(angle) * barrelOffset - s * 0.05
-   );
-   barrel.setRotation(angle);
-   
-   this.container.add(barrel);
+   // ✅ СТВОЛ НАЧИНАЕТСЯ ОТ ЦЕНТРА БАШНИ И ТОРЧИТ ВПРАВО
+   // Никакого смещения - ствол уже нарисован вправо от центра
+   this.barrel = barrel;
+   this.turretGroup.add(barrel);
    
    // ============================================
    // 7. ЛЮК
    // ============================================
    var hatch = this.scene.make.graphics({});
    hatch.fillStyle(0x555555, 1);
-   hatch.fillCircle(s * 0.2, -s * 0.2, s * 0.12);
+   hatch.fillCircle(s * 0.2, -s * 0.15, s * 0.12);
    hatch.fillStyle(0x777777, 0.5);
-   hatch.fillCircle(s * 0.18, -s * 0.22, s * 0.05);
-   this.container.add(hatch);
+   hatch.fillCircle(s * 0.18, -s * 0.17, s * 0.05);
+   this.turretGroup.add(hatch);
    
    // ============================================
    // 8. БРОНЯ
@@ -244,7 +247,10 @@ TankSprite.prototype.create = function() {
    }).setOrigin(0.5);
    this.container.add(this.hpText);
    
-   console.log('✅ Танк создан:', this.unit.id);
+   // ✅ УСТАНАВЛИВАЕМ НАЧАЛЬНОЕ НАПРАВЛЕНИЕ
+   this.updateBarrel();
+   
+   console.log('✅ Танк создан:', this.unit.id, 'направление:', this.unit.direction);
    return this.container;
 };
 
@@ -268,37 +274,25 @@ TankSprite.prototype.drawStar = function(graphics, cx, cy, spikes, outerRadius, 
 };
 
 // ============================================
-// ОБНОВЛЕНИЕ СТВОЛА
+// ✅ ИСПРАВЛЕННЫЙ updateBarrel - ПРАВИЛЬНЫЕ УГЛЫ
 // ============================================
 TankSprite.prototype.updateBarrel = function() {
-   // Находим ствол в контейнере
-   var barrel = null;
-   for (var i = 0; i < this.container.list.length; i++) {
-       var child = this.container.list[i];
-       if (child.type === 'Graphics' && child.rotation !== undefined && child.x !== 0 && child.y !== 0) {
-           barrel = child;
-           break;
-       }
-   }
-   
-   if (!barrel) {
-       console.warn('⚠️ Ствол не найден');
+   if (!this.turretGroup) {
+       console.warn('⚠️ turretGroup не найден');
        return;
    }
    
-   var s = this.size || 30;
    // ✅ ИСПОЛЬЗУЕМ ТЕКУЩЕЕ НАПРАВЛЕНИЕ ИЗ UNIT
    var direction = this.unit.direction || 'right';
    var angle = this.getAngle(direction);
-   var barrelOffset = s * 0.4;
+   
+   // ✅ ПОВОРАЧИВАЕМ ВСЮ БАШНЮ
+   this.turretGroup.setRotation(angle);
+   
+   // ✅ СОХРАНЯЕМ ТЕКУЩЕЕ НАПРАВЛЕНИЕ
+   this.currentDirection = direction;
    
    console.log('🔄 updateBarrel() - направление:', direction, 'угол:', angle);
-   
-   barrel.setRotation(angle);
-   barrel.setPosition(
-       Math.cos(angle) * barrelOffset,
-       Math.sin(angle) * barrelOffset - s * 0.05
-   );
 };
 
 // ============================================
@@ -308,16 +302,12 @@ TankSprite.prototype.updatePosition = function(q, r, direction) {
    var pos = this.hexGrid.hexToPixel(q, r);
    this.container.setPosition(pos.x, pos.y);
    
-   // ✅ СОХРАНЯЕМ НАПРАВЛЕНИЕ, ЕСЛИ ОНО ПЕРЕДАНО
    if (direction) {
        this.unit.direction = direction;
+       this.currentDirection = direction;
    }
-   // ✅ ЕСЛИ НАПРАВЛЕНИЕ НЕ ПЕРЕДАНО - НЕ МЕНЯЕМ!
    
-   // ✅ ОБНОВЛЯЕМ СТВОЛ (ВСЕГДА ПО ТЕКУЩЕМУ НАПРАВЛЕНИЮ)
    this.updateBarrel();
-   
-   // Обновляем HP
    this.updateHPBar();
 };
 
@@ -357,14 +347,15 @@ TankSprite.prototype.lightenColor = function(color, amount) {
 
 // ✅ ПРАВИЛЬНЫЕ УГЛЫ ДЛЯ 6 НАПРАВЛЕНИЙ ГЕКСАГОНАЛЬНОЙ СЕТКИ
 TankSprite.prototype.getAngle = function(direction) {
-   // ✅ 6 НАПРАВЛЕНИЙ ДЛЯ ГЕКСОВ (БЕЗ VERTICAL)
+   // Ствол изначально смотрит вправо (0°)
+   // При повороте башни на угол, ствол поворачивается соответственно
    var map = {
-       'right': 0,                        // 0°
-       'up-right': -Math.PI / 3,          // -60°
-       'up-left': -Math.PI * 2 / 3,       // -120°
-       'left': Math.PI,                   // 180°
-       'down-left': Math.PI * 2 / 3,      // 120°
-       'down-right': Math.PI / 3          // 60°
+       'right': 0,                        // 0° - вправо
+       'up-right': -Math.PI / 3,          // -60° - вверх-вправо
+       'up-left': -Math.PI * 2 / 3,       // -120° - вверх-влево
+       'left': Math.PI,                   // 180° - влево
+       'down-left': Math.PI * 2 / 3,      // 120° - вниз-влево
+       'down-right': Math.PI / 3          // 60° - вниз-вправо
    };
    return map[direction] || 0;
 };
@@ -375,14 +366,13 @@ TankSprite.prototype.getAngle = function(direction) {
 TankSprite.prototype.animateMove = function(fromQ, fromR, toQ, toR, duration, onComplete) {
    if (this.isAnimating) return;
    
-   // ✅ ВЫЧИСЛЯЕМ НАПРАВЛЕНИЕ ДВИЖЕНИЯ
    var direction = HexUtils.getDirection(fromQ, fromR, toQ, toR);
    console.log('🎯 animateMove - направление:', direction);
    
-   // ✅ СОХРАНЯЕМ НАПРАВЛЕНИЕ В ЮНИТЕ
    this.unit.direction = direction;
+   this.currentDirection = direction;
    
-   // ✅ СРАЗУ ПОВОРАЧИВАЕМ СТВОЛ
+   // ✅ СРАЗУ ПОВОРАЧИВАЕМ БАШНЮ
    this.updateBarrel();
    
    this.isAnimating = true;
@@ -397,6 +387,9 @@ TankSprite.prototype.animateMove = function(fromQ, fromR, toQ, toR, duration, on
    this.playMoveSound();
 };
 
+// ============================================
+// UPDATE - НЕ СБРАСЫВАЕТ РОТАЦИЮ
+// ============================================
 TankSprite.prototype.update = function() {
    if (!this.isAnimating) return;
    
@@ -414,19 +407,13 @@ TankSprite.prototype.update = function() {
    
    this.container.setPosition(x, y - heightOffset + bounce * 0.3);
    
-   if (this.animationProgress < 0.9) {
-       var angle = Math.atan2(
-           this.toPos.y - this.fromPos.y,
-           this.toPos.x - this.fromPos.x
-       );
-       this.container.rotation = angle;
-   }
-   
    if (this.animationProgress >= 1) {
        this.isAnimating = false;
        this.container.setPosition(this.toPos.x, this.toPos.y);
-       this.container.rotation = 0;
        this.stopMoveSound();
+       
+       // ✅ УБЕЖДАЕМСЯ, ЧТО НАПРАВЛЕНИЕ СОХРАНЕНО
+       this.updateBarrel();
        
        if (this.onComplete) {
            var callback = this.onComplete;
@@ -470,6 +457,8 @@ TankSprite.prototype.destroy = function() {
    this.hpText = null;
    this.hpBar = null;
    this.hpBarBg = null;
+   this.turretGroup = null;
+   this.barrel = null;
 };
 
 if (typeof window !== 'undefined') {

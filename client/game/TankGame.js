@@ -113,14 +113,34 @@ TankGame.prototype.getNeighbors = function(q, r) {
    return neighbors;
 };
 
-// ✅ ОБНОВЛЕННЫЙ moveToCell - ВРЕМЕННО УБРАНА ПРОВЕРКА КУЛДАУНА
+// ✅ ОБНОВЛЕННЫЙ canMoveToCell - БЕЗ ПРОВЕРКИ КУЛДАУНА
+TankGame.prototype.canMoveToCell = function(unitId, targetQ, targetR) {
+    var unit = this.getAllUnits().find(function(u) {
+        return u.id === unitId && u.active;
+    });
+    if (!unit) return false;
+
+    // ✅ УБИРАЕМ ПРОВЕРКУ КУЛДАУНА
+    // if (this.getRemainingCooldown() > 0) return false;
+
+    if (!HexUtils.areAdjacent(unit.q, unit.r, targetQ, targetR)) return false;
+
+    var occupied = this.getAllUnits().some(function(u) {
+        return u.active && u !== unit && u.q === targetQ && u.r === targetR;
+    });
+    if (occupied) return false;
+
+    return true;
+};
+
+// ✅ ОБНОВЛЕННЫЙ moveToCell - БЕЗ ПРОВЕРКИ КУЛДАУНА
 TankGame.prototype.moveToCell = function(unitId, targetQ, targetR) {
     var unit = this.getAllUnits().find(function(u) {
         return u.id === unitId && u.active;
     });
     if (!unit) return false;
 
-    // ✅ ВРЕМЕННО УБИРАЕМ ПРОВЕРКУ КУЛДАУНА ДЛЯ ТЕСТА
+    // ✅ УБИРАЕМ ПРОВЕРКУ КУЛДАУНА ДЛЯ ДВИЖЕНИЯ
     // if (this.getRemainingCooldown() > 0) return false;
 
     if (!HexUtils.areAdjacent(unit.q, unit.r, targetQ, targetR)) return false;
@@ -138,65 +158,67 @@ TankGame.prototype.moveToCell = function(unitId, targetQ, targetR) {
     return true;
 };
 
+// ✅ КУЛДАУН ОСТАЕТСЯ ТОЛЬКО ДЛЯ СТРЕЛЬБЫ
 TankGame.prototype.shootAtCell = function(attackerId, targetQ, targetR) {
-   var attacker = this.getAllUnits().find(function(u) {
-       return u.id === attackerId && u.active;
-   });
-   if (!attacker) {
-       return { success: false, message: 'Танк не найден' };
-   }
+    var attacker = this.getAllUnits().find(function(u) {
+        return u.id === attackerId && u.active;
+    });
+    if (!attacker) {
+        return { success: false, message: 'Танк не найден' };
+    }
 
-   if (this.getRemainingCooldown() > 0) {
-       return { success: false, message: 'Перезарядка' };
-   }
+    // ✅ КУЛДАУН ДЛЯ СТРЕЛЬБЫ ОСТАЕТСЯ
+    if (this.getRemainingCooldown() > 0) {
+        return { success: false, message: 'Перезарядка' };
+    }
 
-   var distance = HexUtils.distance(attacker.q, attacker.r, targetQ, targetR);
-   if (distance > attacker.range) {
-       return { success: false, message: 'Слишком далеко' };
-   }
+    var distance = HexUtils.distance(attacker.q, attacker.r, targetQ, targetR);
+    if (distance > attacker.range) {
+        return { success: false, message: 'Слишком далеко' };
+    }
 
-   this.lastActionTime = Date.now();
+    this.lastActionTime = Date.now();
 
-   var target = this.getAllUnits().find(function(u) {
-       return u.active && u.team !== attacker.team &&
-              u.q === targetQ && u.r === targetR;
-   });
+    var target = this.getAllUnits().find(function(u) {
+        return u.active && u.team !== attacker.team &&
+               u.q === targetQ && u.r === targetR;
+    });
 
-   if (!target) {
-       return {
-           success: true,
-           hit: false,
-           message: 'Промах!',
-           targetQ: targetQ,
-           targetR: targetR,
-           fromQ: attacker.q,
-           fromR: attacker.r,
-           attackerId: attacker.id
-       };
-   }
+    if (!target) {
+        return {
+            success: true,
+            hit: false,
+            message: 'Промах!',
+            targetQ: targetQ,
+            targetR: targetR,
+            fromQ: attacker.q,
+            fromR: attacker.r,
+            attackerId: attacker.id
+        };
+    }
 
-   target.hp -= attacker.damage;
-   var killed = false;
+    target.hp -= attacker.damage;
+    var killed = false;
 
-   if (target.hp <= 0) {
-       target.active = false;
-       killed = true;
-       attacker.kills++;
-       this.effectManager.addSmoke(target.q, target.r, target.name);
-   }
+    if (target.hp <= 0) {
+        target.active = false;
+        killed = true;
+        attacker.kills++;
+        this.effectManager.addSmoke(target.q, target.r, target.name);
+    }
 
-   return {
-       success: true,
-       hit: true,
-       killed: killed,
-       message: killed ? '💀 ' + target.name + ' уничтожен!' :
-                        '💥 Попадание в ' + target.name + '! -' + attacker.damage + ' HP',
-       targetQ: target.q,
-       targetR: target.r,
-       fromQ: attacker.q,
-       fromR: attacker.r,
-       attackerId: attacker.id
-   };
+    return {
+        success: true,
+        hit: true,
+        killed: killed,
+        message: killed ? '💀 ' + target.name + ' уничтожен!' :
+                         '💥 Попадание в ' + target.name + '! -' + attacker.damage + ' HP',
+        targetQ: target.q,
+        targetR: target.r,
+        fromQ: attacker.q,
+        fromR: attacker.r,
+        attackerId: attacker.id
+    };
 };
 
 TankGame.prototype.botAction = function() {

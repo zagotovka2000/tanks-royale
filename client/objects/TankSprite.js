@@ -11,15 +11,36 @@ function TankSprite(scene, unit, hexGrid) {
    this.fromPos = null;
    this.toPos = null;
    this.animStartTime = 0;
-   this.animDuration = 300;
+   this.animDuration = 3000; // ✅ 3 СЕКУНДЫ
    this.size = 20;
    this.color = null;
    this.lighterColor = null;
+   this.moveSound = null;
+   this.soundLoaded = false;
+   this.onComplete = null; // ✅ КОЛБЭК ПО ЗАВЕРШЕНИЮ
 }
+
+// ✅ ЗАГРУЗКА ЗВУКА ДВИЖЕНИЯ
+TankSprite.prototype.loadMoveSound = function() {
+   try {
+       this.moveSound = new Audio('/sounds/move.mp3');
+       this.moveSound.volume = 0.3;
+       this.moveSound.loop = true;
+       this.moveSound.load();
+       this.soundLoaded = true;
+       console.log('🔊 Звук движения загружен');
+   } catch (e) {
+       console.warn('⚠️ Не удалось загрузить звук движения:', e);
+       this.soundLoaded = false;
+   }
+};
 
 TankSprite.prototype.create = function() {
    var pos = this.hexGrid.hexToPixel(this.unit.q, this.unit.r);
    console.log('🎨 Создание танка:', this.unit.id, 'на позиции:', pos);
+   
+   // ✅ ЗАГРУЖАЕМ ЗВУК ПРИ СОЗДАНИИ
+   this.loadMoveSound();
    
    var color = Phaser.Display.Color.HexStringToColor(this.unit.color || '#4caf50');
    this.color = color;
@@ -87,23 +108,138 @@ TankSprite.prototype.create = function() {
    }).setOrigin(0.5);
    this.container.add(this.hpText);
    
-   // ✅ ЯРКАЯ ПОДСВЕТКА ИГРОКА
+   // ПОДСВЕТКА ИГРОКА
    if (this.unit.isPlayer) {
-       // Свечение
        var glow = this.scene.make.graphics({});
-       glow.fillStyle(0x44ff44, 0.15);
-       glow.fillCircle(0, 0, this.size * 2.5);
+       glow.fillStyle(0x44ff44, 0.08);
+       glow.fillCircle(0, 0, this.size * 2.2);
        this.container.add(glow);
-       
-       // Дополнительная обводка
-       var outline = this.scene.make.graphics({});
-       outline.lineStyle(3, 0x44ff44, 0.6);
-       outline.strokeCircle(0, 0, this.size * 1.8);
-       this.container.add(outline);
    }
    
    console.log('✅ Танк создан:', this.unit.id);
    return this.container;
+};
+
+// ✅ ОБНОВЛЕННАЯ АНИМАЦИЯ ДВИЖЕНИЯ С КОЛБЭКОМ
+TankSprite.prototype.animateMove = function(fromQ, fromR, toQ, toR, duration, onComplete) {
+    // ✅ ЕСЛИ УЖЕ АНИМИРУЕТСЯ - ИГНОРИРУЕМ
+    if (this.isAnimating) {
+        console.warn('⚠️ Танк уже анимируется, игнорируем');
+        return;
+    }
+    
+    console.log('🚶 Анимация движения с', fromQ, fromR, 'на', toQ, toR);
+    
+    this.isAnimating = true;
+    this.animationProgress = 0;
+    this.fromPos = this.hexGrid.hexToPixel(fromQ, fromR);
+    this.toPos = this.hexGrid.hexToPixel(toQ, toR);
+    this.animDuration = duration || 3000;
+    this.animStartTime = Date.now();
+    this.onComplete = onComplete || null; // ✅ СОХРАНЯЕМ КОЛБЭК
+    
+    // ✅ УСТАНАВЛИВАЕМ ТАНК В НАЧАЛЬНУЮ ПОЗИЦИЮ
+    this.container.setPosition(this.fromPos.x, this.fromPos.y);
+    
+    // ВКЛЮЧАЕМ ЗВУК
+    this.playMoveSound();
+};
+
+// ✅ ВОСПРОИЗВЕДЕНИЕ ЗВУКА ДВИЖЕНИЯ
+TankSprite.prototype.playMoveSound = function() {
+   if (!this.soundLoaded || !this.moveSound) {
+       // Пробуем загрузить звук если еще не загружен
+       this.loadMoveSound();
+       return;
+   }
+   
+   try {
+       this.moveSound.currentTime = 0;
+       this.moveSound.loop = true;
+       this.moveSound.play().catch(function(e) {
+           console.warn('⚠️ Не удалось воспроизвести звук:', e);
+       });
+   } catch (e) {
+       console.warn('⚠️ Ошибка воспроизведения звука:', e);
+   }
+};
+
+// ✅ ОСТАНОВКА ЗВУКА ДВИЖЕНИЯ
+TankSprite.prototype.stopMoveSound = function() {
+   if (this.moveSound) {
+       try {
+           this.moveSound.pause();
+           this.moveSound.currentTime = 0;
+           this.moveSound.loop = false;
+       } catch (e) {
+           // Игнорируем
+       }
+   }
+};
+
+// ✅ ОБНОВЛЕННЫЙ UPDATE С ВЫЗОВОМ КОЛБЭКА
+TankSprite.prototype.update = function() {
+    if (!this.isAnimating) return;
+    
+    var elapsed = Date.now() - this.animStartTime;
+    this.animationProgress = Math.min(1, elapsed / this.animDuration);
+    
+    var t = this.animationProgress;
+    var ease = t < 0.5 ? 2 * t * t : 1 - Math.pow(-2 * t + 2, 2) / 2;
+    
+    var x = this.fromPos.x + (this.toPos.x - this.fromPos.x) * ease;
+    var y = this.fromPos.y + (this.toPos.y - this.fromPos.y) * ease;
+    
+    var bounce = Math.sin(this.animationProgress * Math.PI * 2) * 4;
+    var heightOffset = Math.sin(this.animationProgress * Math.PI) * 3;
+    
+    this.container.setPosition(x, y - heightOffset + bounce * 0.3);
+    
+    if (this.animationProgress < 0.9) {
+        var angle = Math.atan2(
+            this.toPos.y - this.fromPos.y,
+            this.toPos.x - this.fromPos.x
+        );
+        this.container.rotation = angle;
+    }
+    
+    // ✅ ЗАВЕРШЕНИЕ АНИМАЦИИ
+    if (this.animationProgress >= 1) {
+        this.isAnimating = false;
+        this.container.setPosition(this.toPos.x, this.toPos.y);
+        this.container.rotation = 0;
+        this.stopMoveSound();
+        console.log('✅ Анимация движения завершена');
+        
+        // ✅ ВЫЗЫВАЕМ КОЛБЭК
+        if (this.onComplete) {
+            var callback = this.onComplete;
+            this.onComplete = null;
+            callback();
+        }
+    }
+};
+
+TankSprite.prototype.updatePosition = function(q, r, direction) {
+   var pos = this.hexGrid.hexToPixel(q, r);
+   this.container.setPosition(pos.x, pos.y);
+   
+   if (direction) {
+       this.unit.direction = direction;
+       var barrel = this.container.list.find(function(child) {
+           return child.type === 'Graphics' && child.x !== 0 && child.y !== 0;
+       });
+       if (barrel) {
+           var angle = this.getAngle(direction);
+           var size = this.size || 18;
+           barrel.setRotation(angle);
+           barrel.setPosition(Math.cos(angle) * size * 0.3, Math.sin(angle) * size * 0.3);
+       }
+   }
+   
+   if (this.hpText) {
+       this.hpText.setText(this.unit.hp + '');
+   }
 };
 
 TankSprite.prototype.lightenColor = function(color, amount) {
@@ -129,87 +265,13 @@ TankSprite.prototype.getAngle = function(direction) {
    return map[direction] || 0;
 };
 
-TankSprite.prototype.updatePosition = function(q, r, direction) {
-   var pos = this.hexGrid.hexToPixel(q, r);
-   this.container.setPosition(pos.x, pos.y);
-   
-   if (direction) {
-       this.unit.direction = direction;
-       var barrel = this.container.list.find(function(child) {
-           return child.type === 'Graphics' && child.x !== 0 && child.y !== 0;
-       });
-       if (barrel) {
-           var angle = this.getAngle(direction);
-           var size = this.size || 18;
-           barrel.setRotation(angle);
-           barrel.setPosition(Math.cos(angle) * size * 0.3, Math.sin(angle) * size * 0.3);
-       }
-   }
-   
-   if (this.hpText) {
-       this.hpText.setText(this.unit.hp + '');
-   }
-};
-
-TankSprite.prototype.animateMove = function(fromQ, fromR, toQ, toR, duration) {
-   if (this.isAnimating) return;
-   
-   this.isAnimating = true;
-   this.animationProgress = 0;
-   this.fromPos = this.hexGrid.hexToPixel(fromQ, fromR);
-   this.toPos = this.hexGrid.hexToPixel(toQ, toR);
-   this.animDuration = duration || 300;
-   this.animStartTime = Date.now();
-   
-   this.unit.q = toQ;
-   this.unit.r = toR;
-};
-
-TankSprite.prototype.update = function() {
-   if (!this.isAnimating) return;
-   
-   var elapsed = Date.now() - this.animStartTime;
-   this.animationProgress = Math.min(1, elapsed / this.animDuration);
-   
-   var t = this.animationProgress;
-   var ease = t < 0.5 ? 2 * t * t : 1 - Math.pow(-2 * t + 2, 2) / 2;
-   
-   var x = this.fromPos.x + (this.toPos.x - this.fromPos.x) * ease;
-   var y = this.fromPos.y + (this.toPos.y - this.fromPos.y) * ease;
-   
-   var bounce = Math.sin(this.animationProgress * Math.PI) * 3;
-   this.container.setPosition(x, y - bounce);
-   
-   if (this.animationProgress >= 1) {
-       this.isAnimating = false;
-       this.container.setPosition(this.toPos.x, this.toPos.y);
-   }
-};
-TankSprite.prototype.updatePosition = function(q, r, direction) {
-   console.log('🔄 updatePosition() - обновляем на', q, r);
-   var pos = this.hexGrid.hexToPixel(q, r);
-   this.container.setPosition(pos.x, pos.y);
-   console.log('✅ Позиция обновлена на', pos.x, pos.y);
-   
-   if (direction) {
-       this.unit.direction = direction;
-       // Обновляем ствол
-       var barrel = this.container.list.find(function(child) {
-           return child.type === 'Graphics' && child.x !== 0 && child.y !== 0;
-       });
-       if (barrel) {
-           var angle = this.getAngle(direction);
-           var size = this.size || 18;
-           barrel.setRotation(angle);
-           barrel.setPosition(Math.cos(angle) * size * 0.3, Math.sin(angle) * size * 0.3);
-       }
-   }
-   
-   if (this.hpText) {
-       this.hpText.setText(this.unit.hp + '');
-   }
-};
 TankSprite.prototype.destroy = function() {
+   // ✅ ОСТАНАВЛИВАЕМ ЗВУК ПРИ УНИЧТОЖЕНИИ
+   this.stopMoveSound();
+   if (this.moveSound) {
+       this.moveSound = null;
+   }
+   
    if (this.container) {
        this.container.destroy();
        this.container = null;

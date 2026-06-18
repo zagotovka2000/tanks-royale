@@ -85,7 +85,7 @@ var GameScene = new Phaser.Class({
        // Настройка камеры
        this.setupCameraControls();
        
-       // Таймер обновления
+       // ✅ ТАЙМЕР ОБНОВЛЕНИЯ (КАЖДЫЕ 100МС ДЛЯ UI И ЛОГИКИ)
        this.updateTimer = this.time.addEvent({
            delay: 100,
            callback: this.onUpdate,
@@ -287,13 +287,24 @@ var GameScene = new Phaser.Class({
        console.log('📷 Камера обновлена: zoom=' + this.cameraZoom.toFixed(2));
    },
    
+   // ✅ ОБНОВЛЕННЫЙ onUpdate - ОТСЛЕЖИВАЕТ ЗАВЕРШЕНИЕ АНИМАЦИЙ
    onUpdate: function() {
-       // Обновляем анимации танков
+       // ✅ ОБНОВЛЯЕМ АНИМАЦИИ ТАНКОВ
+       var allAnimationsComplete = true;
        for (var key of this.tankSprites.keys()) {
            var sprite = this.tankSprites.get(key);
            if (sprite && sprite.update) {
                sprite.update();
+               if (sprite.isAnimating) {
+                   allAnimationsComplete = false;
+               }
            }
+       }
+       
+       // ✅ ЕСЛИ ВСЕ АНИМАЦИИ ЗАВЕРШЕНЫ - ОБНОВЛЯЕМ СОСТОЯНИЕ
+       if (allAnimationsComplete && this.gameState) {
+           // Проверяем, нужно ли обновить танки
+           this.updateTanks(this.gameState);
        }
        
        // Обновляем UI
@@ -344,7 +355,7 @@ var GameScene = new Phaser.Class({
        }
    },
    
-   // ✅ ОБНОВЛЕННЫЙ updateTanks С ПРИНУДИТЕЛЬНЫМ ОБНОВЛЕНИЕМ
+   // ✅ ОБНОВЛЕННЫЙ updateTanks - НЕ ПЕРЕМЕЩАЕМ АНИМИРУЮЩИЙСЯ ТАНК
    updateTanks: function(state) {
        if (!state) return;
        
@@ -354,7 +365,6 @@ var GameScene = new Phaser.Class({
        
        if (state.myTank && state.myTank.active !== false) {
            currentTanks.set(state.myTank.id, { unit: state.myTank, isPlayer: true });
-           console.log('📌 Игрок найден:', state.myTank.id, 'на позиции', state.myTank.q, state.myTank.r);
        }
        
        if (state.enemies) {
@@ -362,33 +372,31 @@ var GameScene = new Phaser.Class({
                var enemy = state.enemies[i];
                if (enemy.active !== false) {
                    currentTanks.set(enemy.id, { unit: enemy, isPlayer: false });
-                   console.log('📌 Враг найден:', enemy.id, 'на позиции', enemy.q, enemy.r);
                }
            }
        }
        
-       console.log('📊 Всего танков в состоянии:', currentTanks.size);
-       
        var self = this;
        currentTanks.forEach(function(value, id) {
            if (self.tankSprites.has(id)) {
-               // ✅ ОБНОВЛЯЕМ СУЩЕСТВУЮЩИЙ СПРАЙТ
                var sprite = self.tankSprites.get(id);
                var unit = value.unit;
                
-               // ✅ ПРИНУДИТЕЛЬНО ОБНОВЛЯЕМ ПОЗИЦИЮ
-               var targetPos = self.hexGrid.hexToPixel(unit.q, unit.r);
-               sprite.container.setPosition(targetPos.x, targetPos.y);
-               sprite.updatePosition(unit.q, unit.r, unit.direction);
-               
-               console.log('✅ Обновлен спрайт', id, 'на позицию', targetPos.x, targetPos.y);
+               // ✅ ЕСЛИ ТАНК АНИМИРУЕТСЯ - НЕ МЕНЯЕМ ПОЗИЦИЮ!
+               if (!sprite.isAnimating) {
+                   var targetPos = self.hexGrid.hexToPixel(unit.q, unit.r);
+                   sprite.container.setPosition(targetPos.x, targetPos.y);
+                   sprite.updatePosition(unit.q, unit.r, unit.direction);
+                   console.log('✅ Обновлен спрайт', id, 'на позицию', targetPos.x, targetPos.y);
+               } else {
+                   console.log('⏳ Танк', id, 'анимируется, пропускаем обновление позиции');
+               }
            } else {
                // Создаем новый спрайт
                console.log('🆕 Создаем новый танк:', id);
                var sprite = new TankSprite(self, value.unit, self.hexGrid);
                sprite.create();
                self.tankSprites.set(id, sprite);
-               console.log('✅ Танк создан:', id);
            }
        });
        
@@ -402,15 +410,12 @@ var GameScene = new Phaser.Class({
        
        for (var i = 0; i < existingIds.length; i++) {
            var id = existingIds[i];
-           console.log('🗑️ Удаляем танк:', id);
            var sprite = self.tankSprites.get(id);
            if (sprite) {
                sprite.destroy();
                self.tankSprites.delete(id);
            }
        }
-       
-       console.log('📊 Танков в spriteMap:', this.tankSprites.size);
    },
    
    handleShootResult: function(result) {

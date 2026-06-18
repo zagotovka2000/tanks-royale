@@ -26,17 +26,76 @@ GameController.prototype.getRemainingCooldown = function() {
    return this.gameInstance.getRemainingCooldown();
 };
 
+// ✅ ИСПРАВЛЕННЫЙ moveTo С ДИАГНОСТИКОЙ
 GameController.prototype.moveTo = function(q, r) {
-   if (!this.gameInstance) return false;
-   var player = this.gameInstance.getFirstPlayer();
-   if (!player) return false;
-   
-   var result = this.gameInstance.moveToCell(player.id, q, r);
-   if (result) {
-       this.updateGameState();
-       this.updateUI();
-   }
-   return result;
+    if (!this.gameInstance) return false;
+    var player = this.gameInstance.getFirstPlayer();
+    if (!player) return false;
+    
+    var fromQ = player.q;
+    var fromR = player.r;
+    
+    console.log('🚶 moveTo() - с', fromQ, fromR, 'на', q, r);
+    
+    var result = this.gameInstance.moveToCell(player.id, q, r);
+    if (result) {
+        console.log('✅ moveToCell успешно выполнен');
+        
+        // ✅ ПРИНУДИТЕЛЬНО ОБНОВЛЯЕМ СОСТОЯНИЕ
+        this.updateGameState();
+        
+        // ✅ ПРИНУДИТЕЛЬНО ОБНОВЛЯЕМ ТАНКИ В СЦЕНЕ
+        if (this.scene) {
+            // Обновляем позицию танка в спрайте
+            var sprite = this.scene.tankSprites.get(player.id);
+            if (sprite) {
+                var targetPos = this.scene.hexGrid.hexToPixel(q, r);
+                sprite.container.setPosition(targetPos.x, targetPos.y);
+                var direction = HexUtils.getDirection(fromQ, fromR, q, r);
+                sprite.updatePosition(q, r, direction);
+                console.log('✅ Спрайт танка обновлен на позицию:', targetPos.x, targetPos.y);
+            } else {
+                console.warn('⚠️ Спрайт танка не найден! Пересоздаем...');
+                this.scene.updateTanks(this.gameState);
+            }
+        }
+        
+        this.updateUI();
+        return true;
+    } else {
+        console.warn('❌ moveToCell вернул false');
+        // Проверяем причину
+        if (this.gameInstance.getRemainingCooldown() > 0) {
+            console.warn('⏱️ Причина: перезарядка');
+            if (this.scene && this.scene.inputController) {
+                this.scene.inputController.showMessage('⏱️ Перезарядка! Подождите 2 секунды');
+            }
+        } else {
+            // Другие возможные причины
+            var player = this.gameInstance.getFirstPlayer();
+            if (player) {
+                var isAdjacent = HexUtils.areAdjacent(player.q, player.r, q, r);
+                if (!isAdjacent) {
+                    console.warn('❌ Причина: клетка не является соседней');
+                    if (this.scene && this.scene.inputController) {
+                        this.scene.inputController.showMessage('❌ Можно двигаться только на соседнюю клетку!');
+                    }
+                } else {
+                    // Проверяем, занята ли клетка
+                    var occupied = this.gameInstance.getAllUnits().some(function(u) {
+                        return u.active && u !== player && u.q === q && u.r === r;
+                    });
+                    if (occupied) {
+                        console.warn('❌ Причина: клетка занята другим юнитом');
+                        if (this.scene && this.scene.inputController) {
+                            this.scene.inputController.showMessage('❌ Клетка занята!');
+                        }
+                    }
+                }
+            }
+        }
+    }
+    return false;
 };
 
 GameController.prototype.shootAt = function(q, r) {

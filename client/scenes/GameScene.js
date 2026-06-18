@@ -344,6 +344,7 @@ var GameScene = new Phaser.Class({
        }
    },
    
+   // ✅ ОБНОВЛЕННЫЙ updateTanks С ПРИНУДИТЕЛЬНЫМ ОБНОВЛЕНИЕМ
    updateTanks: function(state) {
        if (!state) return;
        
@@ -353,7 +354,7 @@ var GameScene = new Phaser.Class({
        
        if (state.myTank && state.myTank.active !== false) {
            currentTanks.set(state.myTank.id, { unit: state.myTank, isPlayer: true });
-           console.log('📌 Игрок найден:', state.myTank.id);
+           console.log('📌 Игрок найден:', state.myTank.id, 'на позиции', state.myTank.q, state.myTank.r);
        }
        
        if (state.enemies) {
@@ -361,7 +362,7 @@ var GameScene = new Phaser.Class({
                var enemy = state.enemies[i];
                if (enemy.active !== false) {
                    currentTanks.set(enemy.id, { unit: enemy, isPlayer: false });
-                   console.log('📌 Враг найден:', enemy.id);
+                   console.log('📌 Враг найден:', enemy.id, 'на позиции', enemy.q, enemy.r);
                }
            }
        }
@@ -371,32 +372,21 @@ var GameScene = new Phaser.Class({
        var self = this;
        currentTanks.forEach(function(value, id) {
            if (self.tankSprites.has(id)) {
-               // Обновляем существующий спрайт
+               // ✅ ОБНОВЛЯЕМ СУЩЕСТВУЮЩИЙ СПРАЙТ
                var sprite = self.tankSprites.get(id);
                var unit = value.unit;
                
-               // ✅ ИСПРАВЛЕНО: используем container.x вместо getPosition()
-               var currentPos = { x: sprite.container.x, y: sprite.container.y };
+               // ✅ ПРИНУДИТЕЛЬНО ОБНОВЛЯЕМ ПОЗИЦИЮ
                var targetPos = self.hexGrid.hexToPixel(unit.q, unit.r);
-               var dist = Phaser.Math.Distance.Between(
-                   currentPos.x, currentPos.y,
-                   targetPos.x, targetPos.y
-               );
+               sprite.container.setPosition(targetPos.x, targetPos.y);
+               sprite.updatePosition(unit.q, unit.r, unit.direction);
                
-               if (dist > 10) {
-                   var fromQ = parseInt(sprite.unit.q) || 0;
-                   var fromR = parseInt(sprite.unit.r) || 0;
-                   sprite.animateMove(fromQ, fromR, unit.q, unit.r, 300);
-               } else {
-                   sprite.updatePosition(unit.q, unit.r, unit.direction);
-               }
-               
-               sprite.unit = unit;
+               console.log('✅ Обновлен спрайт', id, 'на позицию', targetPos.x, targetPos.y);
            } else {
                // Создаем новый спрайт
                console.log('🆕 Создаем новый танк:', id);
                var sprite = new TankSprite(self, value.unit, self.hexGrid);
-               var container = sprite.create();
+               sprite.create();
                self.tankSprites.set(id, sprite);
                console.log('✅ Танк создан:', id);
            }

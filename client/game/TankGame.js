@@ -113,27 +113,29 @@ TankGame.prototype.getNeighbors = function(q, r) {
    return neighbors;
 };
 
+// ✅ ОБНОВЛЕННЫЙ moveToCell - ВРЕМЕННО УБРАНА ПРОВЕРКА КУЛДАУНА
 TankGame.prototype.moveToCell = function(unitId, targetQ, targetR) {
-   var unit = this.getAllUnits().find(function(u) {
-       return u.id === unitId && u.active;
-   });
-   if (!unit) return false;
+    var unit = this.getAllUnits().find(function(u) {
+        return u.id === unitId && u.active;
+    });
+    if (!unit) return false;
 
-   if (this.getRemainingCooldown() > 0) return false;
+    // ✅ ВРЕМЕННО УБИРАЕМ ПРОВЕРКУ КУЛДАУНА ДЛЯ ТЕСТА
+    // if (this.getRemainingCooldown() > 0) return false;
 
-   if (!HexUtils.areAdjacent(unit.q, unit.r, targetQ, targetR)) return false;
+    if (!HexUtils.areAdjacent(unit.q, unit.r, targetQ, targetR)) return false;
 
-   var occupied = this.getAllUnits().some(function(u) {
-       return u.active && u !== unit && u.q === targetQ && u.r === targetR;
-   });
-   if (occupied) return false;
+    var occupied = this.getAllUnits().some(function(u) {
+        return u.active && u !== unit && u.q === targetQ && u.r === targetR;
+    });
+    if (occupied) return false;
 
-   var direction = HexUtils.getDirection(unit.q, unit.r, targetQ, targetR);
-   unit.setDirection(direction);
-   unit.moveTo(targetQ, targetR);
-   this.lastActionTime = Date.now();
+    var direction = HexUtils.getDirection(unit.q, unit.r, targetQ, targetR);
+    unit.setDirection(direction);
+    unit.moveTo(targetQ, targetR);
+    this.lastActionTime = Date.now();
 
-   return true;
+    return true;
 };
 
 TankGame.prototype.shootAtCell = function(attackerId, targetQ, targetR) {

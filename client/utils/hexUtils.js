@@ -32,6 +32,7 @@ var HexUtils = {
        return 'right';
    },
 
+   // ✅ ОБНОВЛЕННЫЙ getNeighbors С ЛОГИРОВАНИЕМ
    getNeighbors: function(q, r) {
        var result = [];
        for (var i = 0; i < this.directions.length; i++) {
@@ -42,6 +43,7 @@ var HexUtils = {
                name: d.name
            });
        }
+       console.log('📌 getNeighbors для', q, r, ':', result.map(function(n) { return n.q + ',' + n.r; }));
        return result;
    },
 

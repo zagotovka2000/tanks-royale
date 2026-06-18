@@ -87,12 +87,19 @@ TankSprite.prototype.create = function() {
    }).setOrigin(0.5);
    this.container.add(this.hpText);
    
-   // ПОДСВЕТКА ИГРОКА
+   // ✅ ЯРКАЯ ПОДСВЕТКА ИГРОКА
    if (this.unit.isPlayer) {
+       // Свечение
        var glow = this.scene.make.graphics({});
-       glow.fillStyle(0x44ff44, 0.08);
-       glow.fillCircle(0, 0, this.size * 2.2);
+       glow.fillStyle(0x44ff44, 0.15);
+       glow.fillCircle(0, 0, this.size * 2.5);
        this.container.add(glow);
+       
+       // Дополнительная обводка
+       var outline = this.scene.make.graphics({});
+       outline.lineStyle(3, 0x44ff44, 0.6);
+       outline.strokeCircle(0, 0, this.size * 1.8);
+       this.container.add(outline);
    }
    
    console.log('✅ Танк создан:', this.unit.id);
@@ -178,7 +185,30 @@ TankSprite.prototype.update = function() {
        this.container.setPosition(this.toPos.x, this.toPos.y);
    }
 };
-
+TankSprite.prototype.updatePosition = function(q, r, direction) {
+   console.log('🔄 updatePosition() - обновляем на', q, r);
+   var pos = this.hexGrid.hexToPixel(q, r);
+   this.container.setPosition(pos.x, pos.y);
+   console.log('✅ Позиция обновлена на', pos.x, pos.y);
+   
+   if (direction) {
+       this.unit.direction = direction;
+       // Обновляем ствол
+       var barrel = this.container.list.find(function(child) {
+           return child.type === 'Graphics' && child.x !== 0 && child.y !== 0;
+       });
+       if (barrel) {
+           var angle = this.getAngle(direction);
+           var size = this.size || 18;
+           barrel.setRotation(angle);
+           barrel.setPosition(Math.cos(angle) * size * 0.3, Math.sin(angle) * size * 0.3);
+       }
+   }
+   
+   if (this.hpText) {
+       this.hpText.setText(this.unit.hp + '');
+   }
+};
 TankSprite.prototype.destroy = function() {
    if (this.container) {
        this.container.destroy();

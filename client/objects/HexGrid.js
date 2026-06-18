@@ -269,7 +269,8 @@ HexGrid.prototype.highlightHex = function(q, r, color) {
        return null;
    }
    
-   this.clearHighlight();
+   // Не очищаем все подсветки при добавлении новой
+   // this.clearHighlight(); - УБРАНО!
    
    var pos = this.hexToPixel(q, r);
    
@@ -310,28 +311,46 @@ HexGrid.prototype.highlightHex = function(q, r, color) {
    return g;
 };
 
+// ✅ ОБНОВЛЕННЫЙ clearHighlight С ЛОГИРОВАНИЕМ
 HexGrid.prototype.clearHighlight = function() {
-   var toRemove = [];
-   for (var key of this.hexObjects.keys()) {
-       if (key.startsWith('highlight_')) {
-           var obj = this.hexObjects.get(key);
-           if (obj && obj.destroy) obj.destroy();
-           toRemove.push(key);
-       }
-   }
-   for (var i = 0; i < toRemove.length; i++) {
-       this.hexObjects.delete(toRemove[i]);
-   }
-   this.currentHighlightKey = null;
+    console.log('🧹 clearHighlight() - удаляем все подсветки');
+    var toRemove = [];
+    for (var key of this.hexObjects.keys()) {
+        if (key.startsWith('highlight_')) {
+            var obj = this.hexObjects.get(key);
+            if (obj && obj.destroy) {
+                obj.destroy();
+                console.log('🗑️ Удалена подсветка:', key);
+            }
+            toRemove.push(key);
+        }
+    }
+    for (var i = 0; i < toRemove.length; i++) {
+        this.hexObjects.delete(toRemove[i]);
+    }
+    this.currentHighlightKey = null;
 };
 
+// ✅ ОБНОВЛЕННЫЙ highlightMoveArea - РАЗНЫЕ ЦВЕТА
 HexGrid.prototype.highlightMoveArea = function(q, r, validNeighbors) {
-   this.clearHighlight();
-   this.highlightHex(q, r, 0x44ff44);
-   for (var i = 0; i < validNeighbors.length; i++) {
-       var n = validNeighbors[i];
-       this.highlightHex(n.q, n.r, 0x44ff44);
-   }
+    console.log('🔆 highlightMoveArea() - центр:', q, r, 'соседи:', validNeighbors ? validNeighbors.length : 0);
+    
+    // ✅ СНАЧАЛА УДАЛЯЕМ ВСЕ СТАРЫЕ ПОДСВЕТКИ
+    this.clearHighlight();
+    
+    // ✅ ПОДСВЕЧИВАЕМ ЦЕНТР (свой танк) - ЖЕЛТЫЙ
+    this.highlightHex(q, r, 0xffdd44);
+    
+    // ✅ ПОДСВЕЧИВАЕМ ВСЕХ СОСЕДЕЙ - ЗЕЛЕНЫЙ
+    if (validNeighbors && validNeighbors.length > 0) {
+        for (var i = 0; i < validNeighbors.length; i++) {
+            var n = validNeighbors[i];
+            console.log('🔆 Подсвечиваем соседа:', n.q, n.r);
+            this.highlightHex(n.q, n.r, 0x44ff44);
+        }
+    } else {
+        console.warn('⚠️ Нет соседей для подсветки');
+    }
 };
 
 HexGrid.prototype.clearMoveHighlight = function() {

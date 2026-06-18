@@ -26,7 +26,7 @@ GameController.prototype.getRemainingCooldown = function() {
    return this.gameInstance.getRemainingCooldown();
 };
 
-// ✅ ОБНОВЛЕННЫЙ moveTo С КОЛБЭКОМ
+// ✅ ОБНОВЛЕННЫЙ moveTo С НАПРАВЛЕНИЕМ
 GameController.prototype.moveTo = function(q, r) {
     if (!this.gameInstance) return false;
     var player = this.gameInstance.getFirstPlayer();
@@ -35,11 +35,8 @@ GameController.prototype.moveTo = function(q, r) {
     var fromQ = player.q;
     var fromR = player.r;
     
-    console.log('🚶 moveTo() - с', fromQ, fromR, 'на', q, r);
-    
     // ✅ ПРОВЕРЯЕМ, МОЖЕТ ЛИ ТАНК ДВИГАТЬСЯ
     var canMove = this.gameInstance.canMoveToCell(player.id, q, r);
-    
     if (!canMove) {
         console.warn('❌ Движение невозможно');
         // Проверяем причину
@@ -70,29 +67,31 @@ GameController.prototype.moveTo = function(q, r) {
         return false;
     }
     
-    // ✅ МЕНЯЕМ ПОЗИЦИЮ В ЛОГИКЕ СРАЗУ
-    var result = this.gameInstance.moveToCell(player.id, q, r);
+    // ✅ ВЫЧИСЛЯЕМ НАПРАВЛЕНИЕ ДЛЯ АНИМАЦИИ
+    var direction = HexUtils.getDirection(fromQ, fromR, q, r);
     
+    // ✅ МЕНЯЕМ ПОЗИЦИЮ В ЛОГИКЕ
+    var result = this.gameInstance.moveToCell(player.id, q, r);
     if (!result) {
         console.warn('❌ moveToCell вернул false');
         return false;
     }
     
-    console.log('✅ moveToCell успешно выполнен, новая позиция:', player.q, player.r);
+    console.log('✅ moveToCell выполнен, направление:', direction);
     
     // ✅ ЗАПУСКАЕМ АНИМАЦИЮ
     if (this.scene) {
         var sprite = this.scene.tankSprites.get(player.id);
         if (sprite) {
-            // ✅ ПЕРЕДАЕМ КОЛБЭК ДЛЯ ОБНОВЛЕНИЯ ПОСЛЕ АНИМАЦИИ
+            // ✅ ПЕРЕДАЕМ НАПРАВЛЕНИЕ В АНИМАЦИЮ
             var self = this;
             sprite.animateMove(fromQ, fromR, q, r, 3000, function() {
-                console.log('✅ Анимация завершена, обновляем состояние');
-                // ✅ ПРИНУДИТЕЛЬНО ОБНОВЛЯЕМ СОСТОЯНИЕ ПОСЛЕ АНИМАЦИИ
+                console.log('✅ Анимация завершена, направление:', direction);
+                // ✅ ОБНОВЛЯЕМ СОСТОЯНИЕ
                 self.updateGameState();
                 self.updateUI();
             });
-            console.log('🎬 Запущена анимация движения на 3 секунды');
+            console.log('🎬 Запущена анимация движения, направление:', direction);
         } else {
             console.warn('⚠️ Спрайт танка не найден!');
             this.scene.updateTanks(this.gameState);

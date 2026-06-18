@@ -133,7 +133,7 @@ TankGame.prototype.canMoveToCell = function(unitId, targetQ, targetR) {
     return true;
 };
 
-// ✅ ОБНОВЛЕННЫЙ moveToCell - БЕЗ ПРОВЕРКИ КУЛДАУНА
+// ✅ ОБНОВЛЕННЫЙ moveToCell - С ВЫЧИСЛЕНИЕМ НАПРАВЛЕНИЯ
 TankGame.prototype.moveToCell = function(unitId, targetQ, targetR) {
     var unit = this.getAllUnits().find(function(u) {
         return u.id === unitId && u.active;
@@ -150,11 +150,13 @@ TankGame.prototype.moveToCell = function(unitId, targetQ, targetR) {
     });
     if (occupied) return false;
 
+    // ✅ ВЫЧИСЛЯЕМ НАПРАВЛЕНИЕ И СОХРАНЯЕМ
     var direction = HexUtils.getDirection(unit.q, unit.r, targetQ, targetR);
     unit.setDirection(direction);
     unit.moveTo(targetQ, targetR);
     this.lastActionTime = Date.now();
 
+    console.log('✅ Танк', unitId, 'перемещен на', targetQ, targetR, 'направление:', direction);
     return true;
 };
 
@@ -252,13 +254,14 @@ TankGame.prototype.botAction = function() {
    return null;
 };
 
+// ✅ ОБНОВЛЕННЫЙ getStateForPlayer - ВКЛЮЧАЕТ НАПРАВЛЕНИЕ
 TankGame.prototype.getStateForPlayer = function(playerId) {
    var player = this.players.find(function(p) { return p.id === playerId; });
    if (!player) return null;
 
    return {
        radius: this.radius,
-       myTank: player.toJSON(),
+       myTank: player.toJSON(), // ✅ toJSON() уже включает direction
        enemies: this.enemies.filter(function(e) { return e.active; }).map(function(e) { return e.toJSON(); }),
        cells: this.cells.slice(0),
        lastActionTime: this.lastActionTime,

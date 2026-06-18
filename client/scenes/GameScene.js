@@ -355,7 +355,7 @@ var GameScene = new Phaser.Class({
        }
    },
    
-   // ✅ ОБНОВЛЕННЫЙ updateTanks - НЕ ПЕРЕМЕЩАЕМ АНИМИРУЮЩИЙСЯ ТАНК
+   // ✅ ОБНОВЛЕННЫЙ updateTanks - ПЕРЕДАЕТ НАПРАВЛЕНИЕ
    updateTanks: function(state) {
        if (!state) return;
        
@@ -365,6 +365,7 @@ var GameScene = new Phaser.Class({
        
        if (state.myTank && state.myTank.active !== false) {
            currentTanks.set(state.myTank.id, { unit: state.myTank, isPlayer: true });
+           console.log('📌 Игрок на позиции:', state.myTank.q, state.myTank.r, 'направление:', state.myTank.direction);
        }
        
        if (state.enemies) {
@@ -386,8 +387,9 @@ var GameScene = new Phaser.Class({
                if (!sprite.isAnimating) {
                    var targetPos = self.hexGrid.hexToPixel(unit.q, unit.r);
                    sprite.container.setPosition(targetPos.x, targetPos.y);
+                   // ✅ ПЕРЕДАЕМ НАПРАВЛЕНИЕ ИЗ UNIT
                    sprite.updatePosition(unit.q, unit.r, unit.direction);
-                   console.log('✅ Обновлен спрайт', id, 'на позицию', targetPos.x, targetPos.y);
+                   console.log('✅ Обновлен спрайт', id, 'на позицию', targetPos.x, targetPos.y, 'направление:', unit.direction);
                } else {
                    console.log('⏳ Танк', id, 'анимируется, пропускаем обновление позиции');
                }

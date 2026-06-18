@@ -1,13 +1,14 @@
 // client/utils/HexUtils.js
 
 var HexUtils = {
+   // ✅ 6 НАПРАВЛЕНИЙ ДЛЯ ГЕКСАГОНАЛЬНОЙ СЕТКИ (ТОЛЬКО Q И R)
    directions: [
-       { q: 1, r: 0, s: -1, name: 'right' },
-       { q: 1, r: -1, s: 0, name: 'up-right' },
-       { q: 0, r: -1, s: 1, name: 'up' },
-       { q: -1, r: 0, s: 1, name: 'left' },
-       { q: -1, r: 1, s: 0, name: 'down-left' },
-       { q: 0, r: 1, s: -1, name: 'down' }
+       { q: 1, r: 0, name: 'right' },
+       { q: 1, r: -1, name: 'up-right' },
+       { q: 0, r: -1, name: 'up-left' },
+       { q: -1, r: 0, name: 'left' },
+       { q: -1, r: 1, name: 'down-left' },
+       { q: 0, r: 1, name: 'down-right' }
    ],
 
    distance: function(q1, r1, q2, r2) {
@@ -61,11 +62,12 @@ var HexUtils = {
    }
 };
 
-// ✅ Универсальный экспорт
+// Экспорт для браузера
 if (typeof window !== 'undefined') {
    window.HexUtils = HexUtils;
 }
 
+// Экспорт для Node.js
 if (typeof module !== 'undefined' && module.exports) {
    module.exports = HexUtils;
 }

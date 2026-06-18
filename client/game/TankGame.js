@@ -1,4 +1,4 @@
-// client/game/TankGame.js
+// client/game/TankGame.js - ДОБАВЛЯЕМ НОВЫЕ МЕТОДЫ
 
 // ✅ Загружаем зависимости для сервера
 if (typeof module !== 'undefined' && module.exports) {
@@ -18,6 +18,7 @@ function TankGame() {
    this.winner = null;
    this.lastActionTime = 0;
    this.cooldown = 2000;
+   this._lastPositions = new Map(); // ✅ ИНИЦИАЛИЗИРУЕМ MAP ДЛЯ ПОЗИЦИЙ
 
    this.cells = [];
    this.players = [];
@@ -113,6 +114,21 @@ TankGame.prototype.getNeighbors = function(q, r) {
    return neighbors;
 };
 
+// ✅ ЗАПОМИНАЕМ ПОСЛЕДНИЕ КООРДИНАТЫ ДЛЯ АНИМАЦИИ
+TankGame.prototype.getLastPosition = function(unitId) {
+    if (!this._lastPositions) {
+        this._lastPositions = new Map();
+    }
+    return this._lastPositions.get(unitId) || null;
+};
+
+TankGame.prototype.setLastPosition = function(unitId, q, r) {
+    if (!this._lastPositions) {
+        this._lastPositions = new Map();
+    }
+    this._lastPositions.set(unitId, { q: q, r: r });
+};
+
 // ✅ ОБНОВЛЕННЫЙ canMoveToCell - БЕЗ ПРОВЕРКИ КУЛДАУНА
 TankGame.prototype.canMoveToCell = function(unitId, targetQ, targetR) {
     var unit = this.getAllUnits().find(function(u) {
@@ -133,7 +149,7 @@ TankGame.prototype.canMoveToCell = function(unitId, targetQ, targetR) {
     return true;
 };
 
-// ✅ ИСПРАВЛЕННЫЙ moveToCell - ПРАВИЛЬНО ВЫЧИСЛЯЕТ НАПРАВЛЕНИЕ
+// ✅ ИСПРАВЛЕННЫЙ moveToCell - СОХРАНЯЕТ ПРЕДЫДУЩУЮ ПОЗИЦИЮ
 TankGame.prototype.moveToCell = function(unitId, targetQ, targetR) {
     var unit = this.getAllUnits().find(function(u) {
         return u.id === unitId && u.active;
@@ -149,6 +165,9 @@ TankGame.prototype.moveToCell = function(unitId, targetQ, targetR) {
         return u.active && u !== unit && u.q === targetQ && u.r === targetR;
     });
     if (occupied) return false;
+
+    // ✅ СОХРАНЯЕМ ПРЕДЫДУЩУЮ ПОЗИЦИЮ
+    this.setLastPosition(unitId, unit.q, unit.r);
 
     // ✅ ВЫЧИСЛЯЕМ НАПРАВЛЕНИЕ И СОХРАНЯЕМ
     var direction = HexUtils.getDirection(unit.q, unit.r, targetQ, targetR);
@@ -224,52 +243,88 @@ TankGame.prototype.shootAtCell = function(attackerId, targetQ, targetR) {
     };
 };
 
+// ✅ ИСПРАВЛЕННЫЙ botAction
 TankGame.prototype.botAction = function() {
-   var player = this.getFirstPlayer();
-   if (!player || !player.active) return null;
+    var player = this.getFirstPlayer();
+    if (!player || !player.active) return null;
 
-   var enemy = this.enemies[0];
-   if (!enemy || !enemy.active) return null;
+    var enemy = this.enemies[0];
+    if (!enemy || !enemy.active) return null;
 
-   if (this.getRemainingCooldown() > 0) return null;
+    // ✅ КУЛДАУН ДЛЯ БОТА - ТОЖЕ 3 СЕКУНДЫ
+    if (this.getRemainingCooldown() > 0) return null;
 
-   var distance = HexUtils.distance(enemy.q, enemy.r, player.q, player.r);
+    var distance = HexUtils.distance(enemy.q, enemy.r, player.q, player.r);
 
-   if (distance <= enemy.range && Math.random() < 0.5) {
-       return this.shootAtCell(enemy.id, player.q, player.r);
-   }
+    // ✅ БОТ СТРЕЛЯЕТ ТОЛЬКО ЕСЛИ В РАДИУСЕ
+    if (distance <= enemy.range && Math.random() < 0.4) {
+        return this.shootAtCell(enemy.id, player.q, player.r);
+    }
 
-   var neighbors = this.getNeighbors(enemy.q, enemy.r);
-   var valid = neighbors.filter(function(n) {
-       var occupied = this.getAllUnits().some(function(u) {
-           return u.active && u.q === n.q && u.r === n.r;
-       });
-       return !occupied;
-   }.bind(this));
+    // ✅ БОТ ХОДИТ РЕЖЕ - С ВЕРОЯТНОСТЬЮ 60%
+    if (Math.random() > 0.6) return null;
 
-   if (valid.length > 0) {
-       var target = valid[Math.floor(Math.random() * valid.length)];
-       this.moveToCell(enemy.id, target.q, target.r);
-   }
+    var neighbors = this.getNeighbors(enemy.q, enemy.r);
+    var valid = neighbors.filter(function(n) {
+        var occupied = this.getAllUnits().some(function(u) {
+            return u.active && u.q === n.q && u.r === n.r;
+        });
+        return !occupied;
+    }.bind(this));
 
-   return null;
+    if (valid.length > 0) {
+        var target = valid[Math.floor(Math.random() * valid.length)];
+        // ✅ СОХРАНЯЕМ СТАРУЮ ПОЗИЦИЮ ДЛЯ АНИМАЦИИ
+        var fromQ = enemy.q;
+        var fromR = enemy.r;
+        
+        // ✅ ДВИГАЕМ БОТА
+        var moved = this.moveToCell(enemy.id, target.q, target.r);
+        if (moved) {
+            console.log('🤖 Бот двинулся с', fromQ, fromR, 'на', target.q, target.r);
+            // ✅ УСТАНАВЛИВАЕМ КУЛДАУН ДЛЯ БОТА
+            this.lastActionTime = Date.now();
+            return {
+                type: 'move',
+                fromQ: fromQ,
+                fromR: fromR,
+                toQ: target.q,
+                toR: target.r,
+                unitId: enemy.id
+            };
+        }
+    }
+
+    return null;
 };
 
-// ✅ ОБНОВЛЕННЫЙ getStateForPlayer - ВКЛЮЧАЕТ НАПРАВЛЕНИЕ
+// ✅ ОБНОВЛЕННЫЙ getStateForPlayer - ДОБАВЛЯЕТ ИНФОРМАЦИЮ О ПОСЛЕДНЕЙ ПОЗИЦИИ
 TankGame.prototype.getStateForPlayer = function(playerId) {
-   var player = this.players.find(function(p) { return p.id === playerId; });
-   if (!player) return null;
+    var player = this.players.find(function(p) { return p.id === playerId; });
+    if (!player) return null;
 
-   return {
-       radius: this.radius,
-       myTank: player.toJSON(), // ✅ toJSON() уже включает direction
-       enemies: this.enemies.filter(function(e) { return e.active; }).map(function(e) { return e.toJSON(); }),
-       cells: this.cells.slice(0),
-       lastActionTime: this.lastActionTime,
-       cooldown: this.cooldown,
-       gameOver: this.gameOver,
-       winner: this.winner
-   };
+    // ✅ ПОЛУЧАЕМ ИНФОРМАЦИЮ О ПОСЛЕДНИХ ПОЗИЦИЯХ ДЛЯ ВСЕХ ЮНИТОВ
+    var lastPositions = {};
+    var allUnits = this.getAllUnits();
+    for (var i = 0; i < allUnits.length; i++) {
+        var unit = allUnits[i];
+        var lastPos = this.getLastPosition(unit.id);
+        if (lastPos) {
+            lastPositions[unit.id] = lastPos;
+        }
+    }
+
+    return {
+        radius: this.radius,
+        myTank: player.toJSON(), // ✅ toJSON() уже включает direction
+        enemies: this.enemies.filter(function(e) { return e.active; }).map(function(e) { return e.toJSON(); }),
+        cells: this.cells.slice(0),
+        lastActionTime: this.lastActionTime,
+        cooldown: this.cooldown,
+        gameOver: this.gameOver,
+        winner: this.winner,
+        lastPositions: lastPositions  // ✅ ДОБАВЛЯЕМ
+    };
 };
 
 TankGame.prototype.checkWinner = function() {

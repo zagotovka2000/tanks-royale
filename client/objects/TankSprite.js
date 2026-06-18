@@ -165,7 +165,6 @@ TankSprite.prototype.create = function() {
    barrel.fillRoundedRect(s * 0.1, -barrelWidth/4, s * 0.6, barrelWidth/2, 2);
    
    // ✅ СТВОЛ НАЧИНАЕТСЯ ОТ ЦЕНТРА БАШНИ И ТОРЧИТ ВПРАВО
-   // Никакого смещения - ствол уже нарисован вправо от центра
    this.barrel = barrel;
    this.turretGroup.add(barrel);
    
@@ -296,6 +295,21 @@ TankSprite.prototype.updateBarrel = function() {
 };
 
 // ============================================
+// ✅ МГНОВЕННЫЙ ПОВОРОТ СТВОЛА (БЕЗ АНИМАЦИИ)
+// ============================================
+TankSprite.prototype.rotateBarrelInstant = function(direction) {
+   if (!this.turretGroup) return;
+   
+   var angle = this.getAngle(direction);
+   this.turretGroup.setRotation(angle);
+   this.currentDirection = direction;
+   if (this.unit) {
+       this.unit.direction = direction;
+   }
+   console.log('🔄 Мгновенный поворот ствола:', direction, 'угол:', angle);
+};
+
+// ============================================
 // ОБНОВЛЕНИЕ ПОЗИЦИИ И НАПРАВЛЕНИЯ
 // ============================================
 TankSprite.prototype.updatePosition = function(q, r, direction) {
@@ -361,66 +375,80 @@ TankSprite.prototype.getAngle = function(direction) {
 };
 
 // ============================================
-// АНИМАЦИЯ ДВИЖЕНИЯ
+// ✅ ИСПРАВЛЕННАЯ АНИМАЦИЯ ДВИЖЕНИЯ
 // ============================================
 TankSprite.prototype.animateMove = function(fromQ, fromR, toQ, toR, duration, onComplete) {
-   if (this.isAnimating) return;
-   
-   var direction = HexUtils.getDirection(fromQ, fromR, toQ, toR);
-   console.log('🎯 animateMove - направление:', direction);
-   
-   this.unit.direction = direction;
-   this.currentDirection = direction;
-   
-   // ✅ СРАЗУ ПОВОРАЧИВАЕМ БАШНЮ
-   this.updateBarrel();
-   
-   this.isAnimating = true;
-   this.animationProgress = 0;
-   this.fromPos = this.hexGrid.hexToPixel(fromQ, fromR);
-   this.toPos = this.hexGrid.hexToPixel(toQ, toR);
-   this.animDuration = duration || 3000;
-   this.animStartTime = Date.now();
-   this.onComplete = onComplete || null;
-   
-   this.container.setPosition(this.fromPos.x, this.fromPos.y);
-   this.playMoveSound();
+    // ✅ НЕ ЗАПУСКАЕМ АНИМАЦИЮ, ЕСЛИ ОНА УЖЕ ИДЕТ
+    if (this.isAnimating) {
+        console.log('⏳ Анимация уже идет, пропускаем');
+        return;
+    }
+    
+    // ✅ НЕ ЗАПУСКАЕМ АНИМАЦИЮ, ЕСЛИ НЕТ СМЕНЫ ПОЗИЦИИ
+    if (fromQ === toQ && fromR === toR) {
+        console.log('⚠️ Нет смены позиции, пропускаем анимацию');
+        if (onComplete) onComplete();
+        return;
+    }
+    
+    var direction = HexUtils.getDirection(fromQ, fromR, toQ, toR);
+    console.log('🎯 animateMove - направление:', direction, 'с', fromQ, fromR, 'на', toQ, toR);
+    
+    // Поворачиваем ствол мгновенно
+    this.unit.direction = direction;
+    this.currentDirection = direction;
+    this.rotateBarrelInstant(direction);
+    
+    this.isAnimating = true;
+    this.animationProgress = 0;
+    this.fromPos = this.hexGrid.hexToPixel(fromQ, fromR);
+    this.toPos = this.hexGrid.hexToPixel(toQ, toR);
+    this.animDuration = duration || 3000; // ✅ ПО УМОЛЧАНИЮ 3 СЕКУНДЫ
+    this.animStartTime = Date.now();
+    this.onComplete = onComplete || null;
+    
+    this.container.setPosition(this.fromPos.x, this.fromPos.y);
+    this.playMoveSound();
+    
+    console.log('🎬 Анимация запущена, длительность:', this.animDuration, 'мс');
 };
 
 // ============================================
-// UPDATE - НЕ СБРАСЫВАЕТ РОТАЦИЮ
+// ✅ ИСПРАВЛЕННЫЙ UPDATE
 // ============================================
 TankSprite.prototype.update = function() {
-   if (!this.isAnimating) return;
-   
-   var elapsed = Date.now() - this.animStartTime;
-   this.animationProgress = Math.min(1, elapsed / this.animDuration);
-   
-   var t = this.animationProgress;
-   var ease = t < 0.5 ? 2 * t * t : 1 - Math.pow(-2 * t + 2, 2) / 2;
-   
-   var x = this.fromPos.x + (this.toPos.x - this.fromPos.x) * ease;
-   var y = this.fromPos.y + (this.toPos.y - this.fromPos.y) * ease;
-   
-   var bounce = Math.sin(this.animationProgress * Math.PI * 2) * 4;
-   var heightOffset = Math.sin(this.animationProgress * Math.PI) * 3;
-   
-   this.container.setPosition(x, y - heightOffset + bounce * 0.3);
-   
-   if (this.animationProgress >= 1) {
-       this.isAnimating = false;
-       this.container.setPosition(this.toPos.x, this.toPos.y);
-       this.stopMoveSound();
-       
-       // ✅ УБЕЖДАЕМСЯ, ЧТО НАПРАВЛЕНИЕ СОХРАНЕНО
-       this.updateBarrel();
-       
-       if (this.onComplete) {
-           var callback = this.onComplete;
-           this.onComplete = null;
-           callback();
-       }
-   }
+    if (!this.isAnimating) return;
+    
+    var elapsed = Date.now() - this.animStartTime;
+    this.animationProgress = Math.min(1, elapsed / this.animDuration);
+    
+    var t = this.animationProgress;
+    var ease = t < 0.5 ? 2 * t * t : 1 - Math.pow(-2 * t + 2, 2) / 2;
+    
+    var x = this.fromPos.x + (this.toPos.x - this.fromPos.x) * ease;
+    var y = this.fromPos.y + (this.toPos.y - this.fromPos.y) * ease;
+    
+    var bounce = Math.sin(this.animationProgress * Math.PI * 2) * 4;
+    var heightOffset = Math.sin(this.animationProgress * Math.PI) * 3;
+    
+    this.container.setPosition(x, y - heightOffset + bounce * 0.3);
+    
+    if (this.animationProgress >= 1) {
+        this.isAnimating = false;
+        this.container.setPosition(this.toPos.x, this.toPos.y);
+        this.stopMoveSound();
+        
+        // ✅ ОБНОВЛЯЕМ ПОЗИЦИЮ В UNIT
+        if (this.unit) {
+            this.updateBarrel();
+        }
+        
+        if (this.onComplete) {
+            var callback = this.onComplete;
+            this.onComplete = null;
+            callback();
+        }
+    }
 };
 
 TankSprite.prototype.playMoveSound = function() {

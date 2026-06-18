@@ -17,15 +17,33 @@ function TankUnit(id, name, team, q, r, hp, damage, color, type, range) {
    this.direction = 'right';
    this.kills = 0;
    this.isPlayer = false;
+   
+   // ✅ ИНИЦИАЛИЗИРУЕМ ПОСЛЕДНЮЮ ПОЗИЦИЮ
+   this._lastQ = q;
+   this._lastR = r;
 }
 
 TankUnit.prototype.setDirection = function(direction) {
    this.direction = direction;
 };
 
+// ✅ ОБНОВЛЕННЫЙ moveTo - СОХРАНЯЕТ ПРЕДЫДУЩУЮ ПОЗИЦИЮ
 TankUnit.prototype.moveTo = function(q, r) {
+   this._lastQ = this.q;
+   this._lastR = this.r;
    this.q = q;
    this.r = r;
+};
+
+// ✅ ДОБАВЛЕННЫЙ МЕТОД - СОХРАНЯЕТ ПОСЛЕДНЮЮ ПОЗИЦИЮ ВРУЧНУЮ
+TankUnit.prototype.setLastPosition = function(q, r) {
+   this._lastQ = q;
+   this._lastR = r;
+};
+
+// ✅ ДОБАВЛЕННЫЙ МЕТОД - ПОЛУЧАЕТ ПОСЛЕДНЮЮ ПОЗИЦИЮ
+TankUnit.prototype.getLastPosition = function() {
+   return { q: this._lastQ, r: this._lastR };
 };
 
 TankUnit.prototype.takeDamage = function(amount) {

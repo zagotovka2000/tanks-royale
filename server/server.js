@@ -45,15 +45,69 @@ app.use(express.static(publicPath));
 var currentGame = null;
 var botInterval = null;
 
+// ✅ ХРАНИМ ТОЛЬКО ПОСЛЕДНЕЕ ДВИЖЕНИЕ ДЛЯ КАЖДОГО ТАНКА
+var lastMoves = new Map();
+
+// ✅ ФУНКЦИЯ ДЛЯ СОХРАНЕНИЯ ПОСЛЕДНЕГО ДВИЖЕНИЯ
+function setLastMove(unitId, fromQ, fromR, toQ, toR) {
+    lastMoves.set(unitId, {
+        fromQ: fromQ,
+        fromR: fromR,
+        toQ: toQ,
+        toR: toR,
+        timestamp: Date.now()
+    });
+}
+
+// ✅ ФУНКЦИЯ ДЛЯ ПОЛУЧЕНИЯ ПОСЛЕДНЕГО ДВИЖЕНИЯ
+function getLastMove(unitId) {
+    return lastMoves.get(unitId) || null;
+}
+
+// ✅ ФУНКЦИЯ ДЛЯ ОЧИСТКИ ДВИЖЕНИЙ
+function clearLastMoves() {
+    lastMoves.clear();
+}
+
+// ✅ ФУНКЦИЯ ДЛЯ ПОЛУЧЕНИЯ ВСЕХ ПОСЛЕДНИХ ДВИЖЕНИЙ
+function getAllLastMoves() {
+    var result = {};
+    var keys = lastMoves.keys();
+    for (var key of keys) {
+        result[key] = lastMoves.get(key);
+    }
+    return result;
+}
+
+// ✅ ФУНКЦИЯ ДЛЯ ОТПРАВКИ СОСТОЯНИЯ ВСЕМ КЛИЕНТАМ
+function broadcastState() {
+    if (!currentGame) return;
+    
+    var player = currentGame.getFirstPlayer();
+    if (!player) return;
+    
+    var state = currentGame.getStateForPlayer(player.id);
+    if (state) {
+        // Добавляем последние движения
+        state.lastMoves = getAllLastMoves();
+        io.emit('gameState', state);
+    }
+}
+
+// ✅ ПРИ СОЗДАНИИ НОВОЙ ИГРЫ ОЧИЩАЕМ ДВИЖЕНИЯ
 function createNewGame() {
     if (botInterval) {
         clearInterval(botInterval);
         botInterval = null;
     }
     
+    // ✅ ОЧИЩАЕМ ПОСЛЕДНИЕ ДВИЖЕНИЯ
+    clearLastMoves();
+    
     currentGame = new TankGame();
     console.log('🎮 Новая игра создана!');
     
+    // ✅ ОБНОВЛЕННЫЙ БОТ-ИНТЕРВАЛ - КАЖДУЮ СЕКУНДУ
     botInterval = setInterval(function() {
         if (!currentGame) return;
         
@@ -63,30 +117,49 @@ function createNewGame() {
             return;
         }
         
+        // Сохраняем текущие позиции
+        var allUnits = currentGame.getAllUnits();
+        var positionsBefore = {};
+        for (var i = 0; i < allUnits.length; i++) {
+            var unit = allUnits[i];
+            positionsBefore[unit.id] = { q: unit.q, r: unit.r };
+        }
+        
+        // Бот делает действие
         var result = currentGame.botAction();
         if (result) {
             io.emit('shootResult', result);
         }
         
+        // Проверяем, кто изменил позицию
+        var allUnitsAfter = currentGame.getAllUnits();
+        var hasMovement = false;
+        for (var i = 0; i < allUnitsAfter.length; i++) {
+            var unit = allUnitsAfter[i];
+            var before = positionsBefore[unit.id];
+            if (before) {
+                if (before.q !== unit.q || before.r !== unit.r) {
+                    setLastMove(unit.id, before.q, before.r, unit.q, unit.r);
+                    hasMovement = true;
+                    console.log('📝 Движение:', unit.id, 'с', before.q, before.r, 'на', unit.q, unit.r);
+                }
+            }
+        }
+        
+        // ✅ ОТПРАВЛЯЕМ СОСТОЯНИЕ КАЖДЫЙ РАЗ, КОГДА ЕСТЬ ДВИЖЕНИЕ
+        if (hasMovement) {
+            broadcastState();
+        }
+        
         if (currentGame.checkWinner()) {
             clearInterval(botInterval);
             botInterval = null;
-            
-            var player = currentGame.getFirstPlayer();
             io.emit('gameEnded', {
                 winner: currentGame.winner,
-                kills: player ? player.kills : 0
+                kills: currentGame.getFirstPlayer() ? currentGame.getFirstPlayer().kills : 0
             });
         }
-        
-        var player = currentGame.getFirstPlayer();
-        if (player) {
-            var state = currentGame.getStateForPlayer(player.id);
-            if (state) {
-                io.emit('gameState', state);
-            }
-        }
-    }, 2000);
+    }, 1000); // ✅ КАЖДУЮ СЕКУНДУ
 }
 
 createNewGame();
@@ -97,8 +170,24 @@ io.on('connection', function(socket) {
     if (currentGame) {
         var player = currentGame.getFirstPlayer();
         if (player) {
+            // ✅ ОТПРАВЛЯЕМ СОСТОЯНИЕ С ПОЗИЦИЯМИ И ДВИЖЕНИЯМИ
             var state = currentGame.getStateForPlayer(player.id);
             if (state) {
+                // Добавляем последние позиции
+                var allUnits = currentGame.getAllUnits();
+                var lastPositions = {};
+                for (var i = 0; i < allUnits.length; i++) {
+                    var unit = allUnits[i];
+                    var lastPos = currentGame.getLastPosition(unit.id);
+                    if (lastPos) {
+                        lastPositions[unit.id] = lastPos;
+                    }
+                }
+                state.lastPositions = lastPositions;
+                
+                // ✅ ДОБАВЛЯЕМ ПОСЛЕДНИЕ ДВИЖЕНИЯ
+                state.lastMoves = getAllLastMoves();
+                
                 socket.emit('gameState', state);
             }
         }
@@ -130,6 +219,9 @@ io.on('connection', function(socket) {
         
         var result = currentGame.shootAtCell(player.id, data.q, data.r);
         io.emit('shootResult', result);
+        
+        // ✅ ОТПРАВЛЯЕМ ОБНОВЛЕННОЕ СОСТОЯНИЕ ПОСЛЕ ВЫСТРЕЛА
+        broadcastState();
         
         if (currentGame.checkWinner()) {
             if (botInterval) {
@@ -167,14 +259,20 @@ io.on('connection', function(socket) {
             return;
         }
         
+        // ✅ СОХРАНЯЕМ ПОЗИЦИЮ ДО ДВИЖЕНИЯ
+        var fromQ = player.q;
+        var fromR = player.r;
+        
         var moved = currentGame.moveToCell(player.id, data.q, data.r);
         if (moved) {
+            // ✅ СОХРАНЯЕМ ПОСЛЕДНЕЕ ДВИЖЕНИЕ
+            setLastMove(player.id, fromQ, fromR, data.q, data.r);
+            console.log('📝 Движение игрока в историю:', player.id, 'с', fromQ, fromR, 'на', data.q, data.r);
+            
             socket.emit('actionAccepted', { type: 'move' });
             
-            var state = currentGame.getStateForPlayer(player.id);
-            if (state) {
-                io.emit('gameState', state);
-            }
+            // ✅ ОТПРАВЛЯЕМ ОБНОВЛЕННОЕ СОСТОЯНИЕ ПОСЛЕ ДВИЖЕНИЯ
+            broadcastState();
         } else {
             var cooldown = currentGame.getRemainingCooldown();
             if (cooldown > 0) {
@@ -184,6 +282,19 @@ io.on('connection', function(socket) {
             } else {
                 socket.emit('error', { message: 'Нельзя туда двигаться' });
             }
+        }
+    });
+    
+    // ✅ ОБРАБОТЧИК ЗАВЕРШЕНИЯ ДВИЖЕНИЯ
+    socket.on('moveComplete', function(data) {
+        console.log('🚶 Движение завершено:', data.tankId, 'с', data.fromQ, data.fromR, 'на', data.toQ, data.toR);
+        
+        // Сохраняем последнее движение для синхронизации с другими клиентами
+        if (currentGame) {
+            setLastMove(data.tankId, data.fromQ, data.fromR, data.toQ, data.toR);
+            
+            // Отправляем обновленное состояние всем клиентам
+            broadcastState();
         }
     });
     

@@ -1,4 +1,4 @@
-// client/controllers/GameController.js
+// client/controllers/GameController.js - ИСПРАВЛЕННАЯ ВЕРСИЯ
 
 function GameController(scene, socket) {
    this.scene = scene;
@@ -8,6 +8,7 @@ function GameController(scene, socket) {
    this.lastActionTime = 0;
    this.cooldown = 2000;
    this.isInitialized = false;
+   this.pendingState = null;
 }
 
 GameController.prototype.init = function() {
@@ -26,7 +27,7 @@ GameController.prototype.getRemainingCooldown = function() {
    return this.gameInstance.getRemainingCooldown();
 };
 
-// ✅ ИСПРАВЛЕННЫЙ moveTo С ПРИНУДИТЕЛЬНЫМ СОХРАНЕНИЕМ НАПРАВЛЕНИЯ
+// ✅ ИСПРАВЛЕННЫЙ moveTo - ОБНОВЛЯЕТ ПОЗИЦИЮ В СПРАЙТЕ
 GameController.prototype.moveTo = function(q, r) {
     if (!this.gameInstance) return false;
     var player = this.gameInstance.getFirstPlayer();
@@ -35,7 +36,6 @@ GameController.prototype.moveTo = function(q, r) {
     var fromQ = player.q;
     var fromR = player.r;
     
-    // Проверяем, может ли танк двигаться
     var canMove = this.gameInstance.canMoveToCell(player.id, q, r);
     if (!canMove) {
         console.warn('❌ Движение невозможно');
@@ -63,10 +63,7 @@ GameController.prototype.moveTo = function(q, r) {
         return false;
     }
     
-    // ✅ ВЫЧИСЛЯЕМ НАПРАВЛЕНИЕ ДЛЯ АНИМАЦИИ
     var direction = HexUtils.getDirection(fromQ, fromR, q, r);
-    
-    // ✅ МЕНЯЕМ ПОЗИЦИЮ В ЛОГИКЕ
     var result = this.gameInstance.moveToCell(player.id, q, r);
     if (!result) {
         console.warn('❌ moveToCell вернул false');
@@ -75,29 +72,44 @@ GameController.prototype.moveTo = function(q, r) {
     
     console.log('✅ moveToCell выполнен, направление:', direction);
     
-    // ✅ ЗАПУСКАЕМ АНИМАЦИЮ
     if (this.scene) {
         var sprite = this.scene.tankSprites.get(player.id);
         if (sprite) {
             var self = this;
-            // ✅ ПЕРЕДАЕМ НАПРАВЛЕНИЕ В АНИМАЦИЮ
-            sprite.animateMove(fromQ, fromR, q, r, 3000, function() {
+            var tankId = player.id;
+            
+            // ✅ ОБНОВЛЯЕМ ПОЗИЦИЮ В СПРАЙТЕ
+            sprite.unit.q = q;
+            sprite.unit.r = r;
+            sprite.unit.direction = direction;
+            
+            sprite.animateMove(fromQ, fromR, q, r, 2000, function() {
                 console.log('✅ Анимация завершена, направление:', direction);
-                // ✅ ПРИНУДИТЕЛЬНО СОХРАНЯЕМ НАПРАВЛЕНИЕ
-                sprite.unit.direction = direction;
                 sprite.updateBarrel();
-                // ✅ ОБНОВЛЯЕМ СОСТОЯНИЕ
                 self.updateGameState();
                 self.updateUI();
-                // ✅ ПРИНУДИТЕЛЬНО ОБНОВЛЯЕМ СЦЕНУ
                 if (self.scene) {
                     self.scene.updateTanks(self.gameState);
+                }
+                
+                // ✅ ОТПРАВЛЯЕМ СОБЫТИЕ НА СЕРВЕР
+                if (self.socket && self.socket.connected) {
+                    self.socket.emit('moveComplete', {
+                        tankId: tankId,
+                        fromQ: fromQ,
+                        fromR: fromR,
+                        toQ: q,
+                        toR: r,
+                        direction: direction
+                    });
                 }
             });
             console.log('🎬 Запущена анимация движения, направление:', direction);
         } else {
             console.warn('⚠️ Спрайт танка не найден!');
-            this.scene.updateTanks(this.gameState);
+            if (this.scene) {
+                this.scene.updateTanks(this.gameState);
+            }
         }
     }
     
@@ -112,7 +124,6 @@ GameController.prototype.shootAt = function(q, r) {
    
    var result = this.gameInstance.shootAtCell(player.id, q, r);
    
-   // Отправляем результат на сервер (если есть)
    if (this.socket && this.socket.connected) {
        this.socket.emit('shoot', {
            q: q,
@@ -131,23 +142,37 @@ GameController.prototype.botAction = function() {
    return this.gameInstance.botAction();
 };
 
+// ✅ ИСПРАВЛЕННЫЙ updateGameState - ПРОВЕРЯЕТ НАЛИЧИЕ SCENE
+// client/controllers/GameController.js - ИСПРАВЛЯЕМ updateGameState
+
 GameController.prototype.updateGameState = function() {
    if (!this.gameInstance) return;
    var player = this.gameInstance.getFirstPlayer();
    if (!player) return;
    
+   // Сохраняем позиции всех танков
+   var allUnits = this.gameInstance.getAllUnits();
+   for (var i = 0; i < allUnits.length; i++) {
+       var unit = allUnits[i];
+       if (!this.gameInstance.getLastPosition(unit.id)) {
+           this.gameInstance.setLastPosition(unit.id, unit.q, unit.r);
+       }
+   }
+   
    this.gameState = this.gameInstance.getStateForPlayer(player.id);
    
-   // Проверяем победителя
    if (this.gameInstance.checkWinner()) {
        this.gameState.gameOver = true;
        this.gameState.winner = this.gameInstance.winner;
        this.onGameEnd();
    }
    
-   // Обновляем сцену
-   if (this.scene) {
+   // ✅ ПРОВЕРЯЕМ, ЧТО СЦЕНА СУЩЕСТВУЕТ И ГОТОВА
+   if (this.scene && this.scene.isReady) {
        this.scene.updateGameState(this.gameState);
+   } else {
+       console.log('⏳ Сцена еще не готова, состояние сохранено');
+       this.pendingState = this.gameState;
    }
 };
 
@@ -159,7 +184,6 @@ GameController.prototype.onGameEnd = function() {
    if (overlay) overlay.style.display = 'flex';
    if (winnerText) winnerText.textContent = winner;
    
-   // Отключаем ввод
    if (this.scene && this.scene.inputController) {
        this.scene.inputController.isEnabled = false;
    }
@@ -167,17 +191,30 @@ GameController.prototype.onGameEnd = function() {
    this.showMessage('🏆 ' + winner);
 };
 
+// client/controllers/GameController.js - ИСПРАВЛЯЕМ resetGame
+
 GameController.prototype.resetGame = function() {
    // Создаем новую игру
    this.gameInstance = new TankGame();
    this.gameState = null;
    this.lastActionTime = 0;
+   this.pendingState = null;
    
-   // Закрываем оверлей
+   // ✅ ОЧИЩАЕМ СПРАЙТЫ
+   if (this.scene) {
+       this.scene.tankSprites.forEach(function(sprite, key) {
+           if (sprite) sprite.destroy();
+       });
+       this.scene.tankSprites.clear();
+   }
+   
+   if (this.socket && this.socket.connected) {
+       this.socket.emit('reset');
+   }
+   
    var overlay = document.getElementById('gameover');
    if (overlay) overlay.style.display = 'none';
    
-   // Включаем ввод
    if (this.scene && this.scene.inputController) {
        this.scene.inputController.isEnabled = true;
        this.scene.inputController.clearTarget();
@@ -185,50 +222,58 @@ GameController.prototype.resetGame = function() {
        this.scene.inputController.updateUI();
    }
    
-   // Обновляем состояние
    this.updateGameState();
    this.updateUI();
    this.showMessage('🔄 Новая битва!');
 };
 
-// ✅ ОБНОВЛЕННЫЙ updateUI - ПОКАЗЫВАЕТ КУЛДАУН ТОЛЬКО ДЛЯ СТРЕЛЬБЫ
+// ✅ ДОБАВЛЯЕМ МЕТОД ДЛЯ ПРОВЕРКИ ГОТОВНОСТИ
+GameController.prototype.checkPendingState = function() {
+   if (this.pendingState && this.scene && this.scene.isReady) {
+       console.log('✅ Применяем отложенное состояние');
+       this.scene.updateGameState(this.pendingState);
+       this.pendingState = null;
+       return true;
+   }
+   return false;
+};
+
 GameController.prototype.updateUI = function() {
-    if (!this.gameState || !this.gameState.myTank) {
-        var hpEl = document.getElementById('hpValue');
-        var killsEl = document.getElementById('killsValue');
-        var enemiesEl = document.getElementById('enemiesValue');
-        if (hpEl) hpEl.textContent = '—';
-        if (killsEl) killsEl.textContent = '—';
-        if (enemiesEl) enemiesEl.textContent = '—';
-        return;
-    }
-    
-    var tank = this.gameState.myTank;
-    var hpEl = document.getElementById('hpValue');
-    var killsEl = document.getElementById('killsValue');
-    var enemiesEl = document.getElementById('enemiesValue');
-    var cooldownFill = document.getElementById('cooldownFill');
-    var cooldownText = document.getElementById('cooldownText');
-    
-    if (hpEl) hpEl.textContent = tank.hp + '/' + tank.maxHp;
-    if (killsEl) killsEl.textContent = tank.kills || 0;
-    if (enemiesEl) enemiesEl.textContent = this.gameState.enemies ? this.gameState.enemies.length : 0;
-    
-    // ✅ ПОКАЗЫВАЕМ КУЛДАУН ТОЛЬКО ДЛЯ СТРЕЛЬБЫ
-    var cooldown = this.getRemainingCooldown();
-    if (cooldownFill) {
-        var percent = (cooldown / this.cooldown) * 100;
-        cooldownFill.style.width = Math.min(100, percent) + '%';
-    }
-    if (cooldownText) {
-        if (cooldown > 0) {
-            cooldownText.textContent = Math.ceil(cooldown / 1000) + 'с';
-            cooldownText.style.color = '#e94560';
-        } else {
-            cooldownText.textContent = 'готов';
-            cooldownText.style.color = '#4caf50';
-        }
-    }
+   if (!this.gameState || !this.gameState.myTank) {
+       var hpEl = document.getElementById('hpValue');
+       var killsEl = document.getElementById('killsValue');
+       var enemiesEl = document.getElementById('enemiesValue');
+       if (hpEl) hpEl.textContent = '—';
+       if (killsEl) killsEl.textContent = '—';
+       if (enemiesEl) enemiesEl.textContent = '—';
+       return;
+   }
+   
+   var tank = this.gameState.myTank;
+   var hpEl = document.getElementById('hpValue');
+   var killsEl = document.getElementById('killsValue');
+   var enemiesEl = document.getElementById('enemiesValue');
+   var cooldownFill = document.getElementById('cooldownFill');
+   var cooldownText = document.getElementById('cooldownText');
+   
+   if (hpEl) hpEl.textContent = tank.hp + '/' + tank.maxHp;
+   if (killsEl) killsEl.textContent = tank.kills || 0;
+   if (enemiesEl) enemiesEl.textContent = this.gameState.enemies ? this.gameState.enemies.length : 0;
+   
+   var cooldown = this.getRemainingCooldown();
+   if (cooldownFill) {
+       var percent = (cooldown / this.cooldown) * 100;
+       cooldownFill.style.width = Math.min(100, percent) + '%';
+   }
+   if (cooldownText) {
+       if (cooldown > 0) {
+           cooldownText.textContent = Math.ceil(cooldown / 1000) + 'с';
+           cooldownText.style.color = '#e94560';
+       } else {
+           cooldownText.textContent = 'готов';
+           cooldownText.style.color = '#4caf50';
+       }
+   }
 };
 
 GameController.prototype.showMessage = function(text) {
@@ -252,6 +297,7 @@ GameController.prototype.destroy = function() {
    this.scene = null;
    this.socket = null;
    this.isInitialized = false;
+   this.pendingState = null;
 };
 
 if (typeof window !== 'undefined') {

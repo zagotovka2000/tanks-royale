@@ -1,4 +1,4 @@
-// client/objects/TankSprite.js - ИСПРАВЛЕННАЯ ВЕРСИЯ С УЛУЧШЕННЫМ ПОВОРОТОМ
+// client/objects/TankSprite.js - ИСПРАВЛЕННАЯ ВЕРСИЯ
 
 function TankSprite(scene, unit, hexGrid) {
    this.scene = scene;
@@ -62,6 +62,7 @@ function TankSprite(scene, unit, hexGrid) {
    // ✅ ОЧЕРЕДЬ ПОВОРОТОВ
    this.rotationQueue = [];
    this.isProcessingRotation = false;
+   this.processTimeout = null; // ✅ ТАЙМЕР ДЛЯ КОНТРОЛЯ
 }
 
 // ============================================
@@ -258,7 +259,7 @@ TankSprite.prototype.updateRecoil = function() {
 };
 
 // ============================================
-// ✅ ПОВОРОТ БАШНИ С ОЧЕРЕДЬЮ
+// ✅ ПОВОРОТ БАШНИ С ОЧЕРЕДЬЮ (ИСПРАВЛЕННЫЙ)
 // ============================================
 TankSprite.prototype.rotateTurret = function(direction, duration, onComplete) {
     console.log('🔄 rotateTurret вызван для', this.unit.id, 'направление:', direction);
@@ -305,11 +306,18 @@ TankSprite.prototype.rotateTurret = function(direction, duration, onComplete) {
 };
 
 // ============================================
-// ✅ ОБРАБОТКА ОЧЕРЕДИ ПОВОРОТОВ
+// ✅ ОБРАБОТКА ОЧЕРЕДИ ПОВОРОТОВ (ИСПРАВЛЕННАЯ)
 // ============================================
 TankSprite.prototype.processRotationQueue = function() {
+    // ✅ ОЧИЩАЕМ ПРЕДЫДУЩИЙ ТАЙМЕР
+    if (this.processTimeout) {
+        clearTimeout(this.processTimeout);
+        this.processTimeout = null;
+    }
+    
     if (this.rotationQueue.length === 0) {
         this.isProcessingRotation = false;
+        console.log('✅ Очередь поворотов пуста');
         return;
     }
     
@@ -348,7 +356,7 @@ TankSprite.prototype.stopTurretRotation = function() {
 };
 
 // ============================================
-// ОБНОВЛЕНИЕ ПОВОРОТА БАШНИ
+// ОБНОВЛЕНИЕ ПОВОРОТА БАШНИ (ИСПРАВЛЕННОЕ)
 // ============================================
 TankSprite.prototype.updateTurretRotation = function() {
     if (!this.isRotating || !this.turretGroup) return;
@@ -381,7 +389,8 @@ TankSprite.prototype.updateTurretRotation = function() {
         
         // ✅ ОБРАБАТЫВАЕМ СЛЕДУЮЩИЙ ПОВОРОТ В ОЧЕРЕДИ
         var self = this;
-        setTimeout(function() {
+        this.processTimeout = setTimeout(function() {
+            self.processTimeout = null;
             if (callback) {
                 callback();
             }
@@ -401,6 +410,11 @@ TankSprite.prototype.setTurretDirection = function(direction) {
     this.rotationQueue = [];
     this.isProcessingRotation = false;
     this.stopTurretRotation();
+    
+    if (this.processTimeout) {
+        clearTimeout(this.processTimeout);
+        this.processTimeout = null;
+    }
     
     var angle = this.getAngle(direction);
     this.turretGroup.setRotation(angle);
@@ -795,6 +809,11 @@ TankSprite.prototype.destroy = function() {
    // Очищаем очередь поворотов
    this.rotationQueue = [];
    this.isProcessingRotation = false;
+   
+   if (this.processTimeout) {
+       clearTimeout(this.processTimeout);
+       this.processTimeout = null;
+   }
    
    if (this.rotationTween) {
        this.scene.tweens.remove(this.rotationTween);

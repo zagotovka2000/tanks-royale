@@ -24,10 +24,31 @@ const ClientConfig = {
    
    // Настройки камеры
    CAMERA: {
+       defaultZoom: 1.0,
        minZoom: 0.5,
        maxZoom: 2.0,
-       defaultZoom: 1.0,
-       zoomStep: 0.1
+       zoomStep: 0.1,
+       showButtons: true  // Показывать кнопки зума
+   },
+   
+   // Настройки сетки
+   GRID: {
+       hexSize: 45,
+       defaultColor: 0x4a8c3f,
+       baseColor: 0xc9a03d
+   },
+   
+   // Настройки танков
+   TANK: {
+       moveDuration: 2000,
+       shootDuration: 300
+   },
+   
+   // Настройки эффектов
+   EFFECTS: {
+       explosionParticles: 20,
+       smokeDuration: 2000,
+       trailDuration: 200
    },
    
    // Временные задержки (мс)
@@ -46,7 +67,7 @@ const ClientConfig = {
    }
 };
 
-// Экспорт
+// ✅ Единый экспорт
 if (typeof window !== 'undefined') {
    window.ClientConfig = ClientConfig;
 }

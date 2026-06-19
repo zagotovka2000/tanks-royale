@@ -54,35 +54,35 @@
     <!-- Сообщения -->
     <div id="messages" style="position: fixed; top: 100px; left: 50%; transform: translateX(-50%); z-index: 100; text-align: center; pointer-events: none;"></div>
     
-    <!-- ================================================ -->
-    <!-- ✅ ПРАВИЛЬНЫЙ ПОРЯДОК ЗАГРУЗКИ (СНИЗУ ВВЕРХ)     -->
-    <!-- ================================================ -->
-    
-    <!-- 1. Утилиты и базовые классы -->
-    <script src="/client/utils/HexUtils.js"></script>
-    
-    <!-- 2. Модели данных -->
-    <script src="/client/models/TankUnit.js"></script>
-    
-    <!-- 3. Игровая логика -->
-    <script src="/client/game/EffectManager.js"></script>
-    <script src="/client/game/ShootLogic.js"></script>      <!-- ShootLogic ПЕРЕД TankGame -->
-    <script src="/client/game/TankGame.js"></script>        <!-- TankGame ПОСЛЕ ShootLogic -->
-    
-    <!-- 4. Объекты отображения -->
-    <script src="/client/objects/HexGrid.js"></script>
-    <script src="/client/objects/TankSprite.js"></script>
-    
-    <!-- 5. Контроллеры (зависят от моделей и игровой логики) -->
-    <script src="/client/controllers/InputController.js"></script>
-    <script src="/client/controllers/GameController.js"></script>  <!-- GameController ПОСЛЕ TankGame -->
-    
-    <!-- 6. Сцены Phaser (зависят от контроллеров) -->
-    <script src="/client/scenes/BootScene.js"></script>
-    <script src="/client/scenes/GameScene.js"></script>
-    
-    <!-- 7. Главный скрипт (запускает игру) -->
-    <script src="/client/main.js"></script>
+<!-- client/index.html - ПРАВИЛЬНЫЙ ПОРЯДОК -->
+
+<!-- 1. Утилиты -->
+<script src="/client/utils/HexUtils.js"></script>
+
+<!-- 2. Модели -->
+<script src="/client/models/TankUnit.js"></script>
+
+<!-- 3. Игровая логика -->
+<script src="/client/game/EffectManager.js"></script>
+<script src="/client/game/ShootLogic.js"></script>
+<script src="/client/game/TankGame.js"></script>
+<script src="/client/game/ProjectileManager.js"></script>
+
+<!-- 4. Объекты отображения -->
+<script src="/client/objects/HexGrid.js"></script>
+<script src="/client/objects/TankSprite.js"></script>
+
+<!-- 5. Контроллеры -->
+<script src="/client/controllers/CameraController.js"></script>
+<script src="/client/controllers/InputController.js"></script>
+<script src="/client/controllers/GameController.js"></script>
+
+<!-- 6. Сцены Phaser -->
+<script src="/client/scenes/BootScene.js"></script>
+<script src="/client/scenes/GameScene.js"></script>
+
+<!-- 7. Главный скрипт -->
+<script src="/client/main.js"></script>
     
     <!-- ================================================ -->
     

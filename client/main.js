@@ -1,10 +1,21 @@
 // client/main.js
 
 (function() {
+   'use strict';
+   
    console.log('🚀 Запуск Tank Royale...');
+   console.log('🔍 Проверка загрузки сцен:');
+   console.log('  - BootScene:', typeof BootScene);
+   console.log('  - GameScene:', typeof GameScene);
+   
+   // Проверяем, что сцены загружены
+   if (typeof BootScene === 'undefined' || typeof GameScene === 'undefined') {
+       console.error('❌ Сцены не загружены!');
+       console.log('🔍 Доступные сцены:', Object.keys(window).filter(k => k.includes('Scene')));
+   }
    
    // Конфигурация Phaser
-   var config = {
+   const config = {
        type: Phaser.AUTO,
        width: window.innerWidth,
        height: window.innerHeight,
@@ -22,66 +33,17 @@
    };
    
    // Создаем игру
-   var game = new Phaser.Game(config);
+   const game = new Phaser.Game(config);
    
    // Обработка ресайза
-   window.addEventListener('resize', function() {
+   window.addEventListener('resize', () => {
        game.scale.resize(window.innerWidth, window.innerHeight);
    });
    
-   console.log('✅ Игра создана!');
-   
    // Глобальная ссылка для отладки
    window.__game = game;
+   
+   console.log('✅ Tank Royale запущен!');
+   console.log('📊 Game instance:', game);
+   
 })();
-// client/main.js - ДОБАВЛЯЕМ В КОНЕЦ ФАЙЛА
-
-// ✅ ГЛОБАЛЬНАЯ ФУНКЦИЯ ДЛЯ СИНХРОНИЗАЦИИ АНИМАЦИЙ
-window.forceUpdateAllTanks = function() {
-   var scene = window.__game?.scene?.getScene('GameScene');
-   if (scene && scene.gameState) {
-       console.log('🔄 Принудительное обновление всех танков');
-       scene.updateTanks(scene.gameState);
-   }
-};
-
-// ✅ ПЕРИОДИЧЕСКАЯ ПРОВЕРКА ДЛЯ ЗАВЕРШЕННЫХ АНИМАЦИЙ
-setInterval(function() {
-   var scene = window.__game?.scene?.getScene('GameScene');
-   if (!scene) return;
-   
-   // Проверяем, все ли анимации завершены
-   var allComplete = true;
-   for (var key of scene.tankSprites.keys()) {
-       var sprite = scene.tankSprites.get(key);
-       if (sprite && sprite.isAnimating) {
-           allComplete = false;
-           break;
-       }
-   }
-   
-   // Если все анимации завершены и есть состояние - обновляем
-   if (allComplete && scene.gameState) {
-       // Проверяем, нужно ли обновить позиции
-       var needUpdate = false;
-       if (scene.gameState.lastPositions) {
-           for (var key of scene.tankSprites.keys()) {
-               var sprite = scene.tankSprites.get(key);
-               if (sprite && sprite.unit) {
-                   var lastPos = scene.gameState.lastPositions[sprite.unit.id];
-                   if (lastPos) {
-                       if (lastPos.q !== sprite.unit.q || lastPos.r !== sprite.unit.r) {
-                           needUpdate = true;
-                           break;
-                       }
-                   }
-               }
-           }
-       }
-       
-       if (needUpdate) {
-           console.log('🔄 Обновление позиций танков (анимации завершены)');
-           scene.updateTanks(scene.gameState);
-       }
-   }
-}, 500); // Проверяем каждые 500мс

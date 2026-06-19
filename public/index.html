@@ -54,15 +54,14 @@
     <!-- Сообщения -->
     <div id="messages" style="position: fixed; top: 100px; left: 50%; transform: translateX(-50%); z-index: 100; text-align: center; pointer-events: none;"></div>
     
-    <!-- ✅ Скрипты игры - теперь с /client/ -->
     <script src="/client/utils/HexUtils.js"></script>
-    <script src="/client/game/TankUnit.js"></script>
     <script src="/client/game/EffectManager.js"></script>
-    <script src="/client/game/TankGame.js"></script>
+    <script src="/client/models/TankUnit.js"></script>
+    <script src="/client/game/TankGame.js"></script>      <!-- TankGame ДОЛЖЕН быть перед GameController -->
     <script src="/client/objects/HexGrid.js"></script>
     <script src="/client/objects/TankSprite.js"></script>
     <script src="/client/controllers/InputController.js"></script>
-    <script src="/client/controllers/GameController.js"></script>
+    <script src="/client/controllers/GameController.js"></script>  <!-- GameController ПОСЛЕ TankGame -->
     <script src="/client/scenes/BootScene.js"></script>
     <script src="/client/scenes/GameScene.js"></script>
     <script src="/client/main.js"></script>
@@ -90,5 +89,6 @@
             }
         });
     </script>
+    
 </body>
 </html>

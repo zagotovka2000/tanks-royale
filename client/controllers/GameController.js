@@ -19,7 +19,18 @@ function GameController(scene, socket) {
 }
 
 GameController.prototype.init = function() {
-   this.gameInstance = new TankGame();
+   // ✅ Получаем TankGame из правильного места
+   var TankGameClass = window.TankGame || 
+                       (typeof require !== 'undefined' ? require('../game/TankGame.js').TankGame : null);
+   
+   if (!TankGameClass) {
+       console.error('❌ TankGame не найден!');
+       console.log('🔍 window.TankGame:', window.TankGame);
+       return this;
+   }
+   
+   console.log('✅ Создание GameController с TankGame');
+   this.gameInstance = new TankGameClass();
    this.isInitialized = true;
    this.updateUI();
    
@@ -40,21 +51,17 @@ GameController.prototype.init = function() {
 // МЕТОДЫ КУЛДАУНОВ
 // ============================================
 
-// ✅ ВОССТАНАВЛИВАЕМ getRemainingCooldown() ДЛЯ ОБРАТНОЙ СОВМЕСТИМОСТИ
 GameController.prototype.getRemainingCooldown = function() {
    if (!this.gameInstance) return 0;
    
-   // ✅ ВОЗВРАЩАЕМ МАКСИМАЛЬНЫЙ ИЗ ДВУХ КУЛДАУНОВ (ДЛЯ UI)
    var moveCooldown = this.gameInstance.getRemainingMoveCooldown ? 
        this.gameInstance.getRemainingMoveCooldown() : 0;
    var shootCooldown = this.gameInstance.getRemainingShootCooldown ? 
        this.gameInstance.getRemainingShootCooldown() : 0;
    
-   // Для UI показываем максимальный (обычно это кулдаун стрельбы)
    return Math.max(moveCooldown, shootCooldown);
 };
 
-// ✅ ДОБАВЛЯЕМ МЕТОДЫ ДЛЯ ПОЛУЧЕНИЯ ОТДЕЛЬНЫХ КУЛДАУНОВ
 GameController.prototype.getRemainingMoveCooldown = function() {
    if (!this.gameInstance || !this.gameInstance.getRemainingMoveCooldown) return 0;
    return this.gameInstance.getRemainingMoveCooldown();
@@ -65,19 +72,17 @@ GameController.prototype.getRemainingShootCooldown = function() {
    return this.gameInstance.getRemainingShootCooldown();
 };
 
-// ✅ НОВЫЙ МЕТОД ДЛЯ ОБНОВЛЕНИЯ КЭША КУЛДАУНОВ
 GameController.prototype.updateCooldownCache = function() {
    if (!this.gameInstance) return;
    
    var now = Date.now();
-   if (now - this._lastCooldownUpdate > 50) { // Обновляем не чаще 50мс
+   if (now - this._lastCooldownUpdate > 50) {
        this._cachedCooldowns.move = this.getRemainingMoveCooldown();
        this._cachedCooldowns.shoot = this.getRemainingShootCooldown();
        this._lastCooldownUpdate = now;
    }
 };
 
-// ✅ МЕТОД ДЛЯ ПРОВЕРКИ, МОЖЕТ ЛИ ИГРОК СТРЕЛЯТЬ
 GameController.prototype.canShoot = function() {
    if (!this.gameInstance) return false;
    var player = this.gameInstance.getFirstPlayer();
@@ -85,7 +90,6 @@ GameController.prototype.canShoot = function() {
    return this.gameInstance.canShoot ? this.gameInstance.canShoot(player) : true;
 };
 
-// ✅ МЕТОД ДЛЯ ПРОВЕРКИ, МОЖЕТ ЛИ ИГРОК ДВИГАТЬСЯ
 GameController.prototype.canMove = function() {
    if (!this.gameInstance) return false;
    var player = this.gameInstance.getFirstPlayer();
@@ -97,7 +101,6 @@ GameController.prototype.canMove = function() {
 // ЗАПРОС ДВИЖЕНИЯ
 // ============================================
 
-// ✅ ИСПРАВЛЕННЫЙ requestMove
 GameController.prototype.requestMove = function(q, r, callback) {
    if (!this.socket || !this.socket.connected) {
        return this.executeMoveLocally(q, r, callback);
@@ -115,7 +118,6 @@ GameController.prototype.requestMove = function(q, r, callback) {
        return false;
    }
    
-   // Проверяем кулдаун движения
    if (!this.canMove()) {
        var remaining = this.getRemainingMoveCooldown();
        if (this.scene && this.scene.inputController) {
@@ -152,7 +154,6 @@ GameController.prototype.requestMove = function(q, r, callback) {
    return true;
 };
 
-// ✅ ИСПРАВЛЕННЫЙ onMoveAccepted - ЗАПУСКАЕТ АНИМАЦИЮ
 GameController.prototype.onMoveAccepted = function(data) {
    console.log('✅ Движение подтверждено:', data);
    this.isWaitingForResponse = false;
@@ -161,31 +162,24 @@ GameController.prototype.onMoveAccepted = function(data) {
    if (player && player.id === data.unitId) {
        var fromQ = player.q;
        var fromR = player.r;
-       
-       // ✅ СОХРАНЯЕМ СТАРУЮ ПОЗИЦИЮ ДЛЯ АНИМАЦИИ
        var oldQ = fromQ;
        var oldR = fromR;
        
-       // Обновляем позицию
        player.q = data.toQ;
        player.r = data.toR;
        player.direction = data.direction || 'right';
        
-       // Сохраняем последнюю позицию
        this.gameInstance.setLastPosition(player.id, fromQ, fromR);
        
-       // ✅ ЗАПУСКАЕМ АНИМАЦИЮ НЕПОСРЕДСТВЕННО
        if (this.scene && this.scene.isReady) {
            var sprite = this.scene.tankSprites.get(player.id);
            if (sprite) {
                console.log('🎬 Запуск анимации для игрока с', oldQ, oldR, 'на', data.toQ, data.toR);
                
-               // ✅ УБЕЖДАЕМСЯ, ЧТО НАПРАВЛЕНИЕ ПРАВИЛЬНОЕ
                var direction = HexUtils.getDirection(oldQ, oldR, data.toQ, data.toR);
                sprite.unit.direction = direction;
                sprite.currentDirection = direction;
                
-               // ✅ ЗАПУСКАЕМ АНИМАЦИЮ С ЗВУКОМ
                var self = this;
                sprite.animateMove(
                    oldQ,
@@ -197,7 +191,6 @@ GameController.prototype.onMoveAccepted = function(data) {
                        console.log('✅ Анимация игрока завершена');
                        sprite.updateBarrel();
                        
-                       // ✅ ОТПРАВЛЯЕМ ЗАВЕРШЕНИЕ НА СЕРВЕР
                        if (self.socket && self.socket.connected) {
                            self.socket.emit('moveComplete', {
                                unitId: player.id,
@@ -208,21 +201,17 @@ GameController.prototype.onMoveAccepted = function(data) {
                            });
                        }
                        
-                       // Обновляем состояние
                        self.updateGameState();
                        self.updateUI();
                    }
                );
            } else {
                console.warn('⚠️ Спрайт игрока не найден');
-               // Создаем спрайт, если его нет
                var state = this.gameState;
                if (state && state.myTank) {
                    var newSprite = new TankSprite(this.scene, state.myTank, this.scene.hexGrid);
                    newSprite.create();
                    this.scene.tankSprites.set(player.id, newSprite);
-                   
-                   // Повторяем анимацию
                    this.onMoveAccepted(data);
                }
            }
@@ -240,7 +229,6 @@ GameController.prototype.onMoveAccepted = function(data) {
    }
 };
 
-// ✅ ИСПРАВЛЕННЫЙ onMoveRejected
 GameController.prototype.onMoveRejected = function(data) {
    console.log('❌ Движение отклонено:', data);
    this.isWaitingForResponse = false;
@@ -257,7 +245,6 @@ GameController.prototype.onMoveRejected = function(data) {
    }
 };
 
-// ✅ ИСПРАВЛЕННЫЙ executeMoveLocally - ЗАПУСКАЕТ АНИМАЦИЮ
 GameController.prototype.executeMoveLocally = function(q, r, callback) {
    console.log('🏠 Локальное движение:', q, r);
    
@@ -276,7 +263,6 @@ GameController.prototype.executeMoveLocally = function(q, r, callback) {
        return false;
    }
    
-   // ✅ ЗАПУСКАЕМ АНИМАЦИЮ
    if (this.scene && this.scene.isReady) {
        var sprite = this.scene.tankSprites.get(player.id);
        if (sprite) {
@@ -314,7 +300,6 @@ GameController.prototype.executeMoveLocally = function(q, r, callback) {
 // ЗАПРОС ВЫСТРЕЛА
 // ============================================
 
-// ✅ ИСПРАВЛЕННЫЙ shootAt
 GameController.prototype.shootAt = function(q, r) {
    if (!this.socket || !this.socket.connected) {
        return this.executeShootLocally(q, r);
@@ -323,7 +308,6 @@ GameController.prototype.shootAt = function(q, r) {
    var player = this.gameInstance.getFirstPlayer();
    if (!player) return { success: false, message: 'Игрок не найден' };
    
-   // ✅ ИСПОЛЬЗУЕМ НОВЫЙ МЕТОД canShoot
    if (!this.canShoot()) {
        var remaining = this.getRemainingShootCooldown();
        if (this.scene && this.scene.inputController) {
@@ -341,7 +325,6 @@ GameController.prototype.shootAt = function(q, r) {
    return { success: true, pending: true };
 };
 
-// ✅ ИСПРАВЛЕННЫЙ executeShootLocally
 GameController.prototype.executeShootLocally = function(q, r) {
    var player = this.gameInstance.getFirstPlayer();
    if (!player) return { success: false, message: 'Игрок не найден' };
@@ -357,7 +340,6 @@ GameController.prototype.executeShootLocally = function(q, r) {
    return result;
 };
 
-// ✅ ИСПРАВЛЕННЫЙ onShootResult
 GameController.prototype.onShootResult = function(result) {
    console.log('🎯 Результат выстрела:', result);
    
@@ -385,7 +367,6 @@ GameController.prototype.onShootResult = function(result) {
    }
 };
 
-// ✅ ОБРАБОТЧИК ОТКЛОНЕНИЯ ВЫСТРЕЛА
 GameController.prototype.onShootRejected = function(data) {
    console.log('❌ Выстрел отклонен:', data);
    
@@ -398,7 +379,6 @@ GameController.prototype.onShootRejected = function(data) {
 // СОСТОЯНИЕ ИГРЫ
 // ============================================
 
-// ✅ ИСПРАВЛЕННЫЙ onGameState
 GameController.prototype.onGameState = function(state) {
    console.log('📥 Получено состояние от сервера');
    this.gameState = state;
@@ -408,13 +388,11 @@ GameController.prototype.onGameState = function(state) {
    this.updateUI();
 };
 
-// ✅ ОБРАБОТЧИК СБРОСА
 GameController.prototype.onGameReset = function(data) {
    console.log('🔄 Сброс игры:', data);
    this.resetGame();
 };
 
-// ✅ ОБРАБОТЧИК ОКОНЧАНИЯ ИГРЫ
 GameController.prototype.onGameEnded = function(data) {
    console.log('🏁 Игра окончена:', data);
    if (this.gameInstance) {
@@ -425,7 +403,6 @@ GameController.prototype.onGameEnded = function(data) {
    this.onGameEnd();
 };
 
-// ✅ ИСПРАВЛЕННЫЙ updateGameState
 GameController.prototype.updateGameState = function() {
    if (!this.gameInstance) return;
    var player = this.gameInstance.getFirstPlayer();
@@ -458,9 +435,7 @@ GameController.prototype.updateGameState = function() {
 // UI ОБНОВЛЕНИЯ
 // ============================================
 
-// ✅ ИСПРАВЛЕННЫЙ updateUI
 GameController.prototype.updateUI = function() {
-   // ✅ ОБНОВЛЯЕМ КЭШ КУЛДАУНОВ
    this.updateCooldownCache();
    
    if (!this.gameState || !this.gameState.myTank) {
@@ -484,24 +459,15 @@ GameController.prototype.updateUI = function() {
    if (killsEl) killsEl.textContent = tank.kills || 0;
    if (enemiesEl) enemiesEl.textContent = this.gameState.enemies ? this.gameState.enemies.length : 0;
    
-   // ✅ ИСПОЛЬЗУЕМ КЭШ ДЛЯ КУЛДАУНА
    var cooldown = this._cachedCooldowns.shoot || 0;
    var moveCooldown = this._cachedCooldowns.move || 0;
-   
-   // Показываем максимальный кулдаун (обычно это стрельба)
    var displayCooldown = Math.max(cooldown, moveCooldown);
    
    if (cooldownFill) {
-       var maxCooldown = 2500; // Максимальный кулдаун (shootCooldown)
+       var maxCooldown = 2500;
        var percent = Math.min(100, (displayCooldown / maxCooldown) * 100);
        cooldownFill.style.width = percent + '%';
-       
-       // Меняем цвет в зависимости от кулдауна
-       if (displayCooldown > 0) {
-           cooldownFill.style.background = '#e94560';
-       } else {
-           cooldownFill.style.background = '#4caf50';
-       }
+       cooldownFill.style.background = displayCooldown > 0 ? '#e94560' : '#4caf50';
    }
    
    if (cooldownText) {
@@ -519,18 +485,15 @@ GameController.prototype.updateUI = function() {
 // ВСПОМОГАТЕЛЬНЫЕ МЕТОДЫ
 // ============================================
 
-// ✅ ИСПРАВЛЕННЫЙ isGameOver
 GameController.prototype.isGameOver = function() {
    return this.gameInstance ? this.gameInstance.gameOver : false;
 };
 
-// ✅ ИСПРАВЛЕННЫЙ botAction
 GameController.prototype.botAction = function() {
    if (!this.gameInstance || this.gameInstance.gameOver) return null;
    return this.gameInstance.botAction();
 };
 
-// ✅ ИСПРАВЛЕННЫЙ onGameEnd
 GameController.prototype.onGameEnd = function() {
    var winner = this.gameInstance ? this.gameInstance.winner : 'Ничья';
    var overlay = document.getElementById('gameover');
@@ -546,9 +509,16 @@ GameController.prototype.onGameEnd = function() {
    this.showMessage('🏆 ' + winner);
 };
 
-// ✅ ИСПРАВЛЕННЫЙ resetGame
 GameController.prototype.resetGame = function() {
-   this.gameInstance = new TankGame();
+   var TankGameClass = window.TankGame || 
+                       (typeof require !== 'undefined' ? require('../game/TankGame.js').TankGame : null);
+   
+   if (!TankGameClass) {
+       console.error('❌ TankGame не найден для сброса!');
+       return;
+   }
+   
+   this.gameInstance = new TankGameClass();
    this.gameState = null;
    this.pendingState = null;
    this.isWaitingForResponse = false;
@@ -562,7 +532,6 @@ GameController.prototype.resetGame = function() {
        });
        this.scene.tankSprites.clear();
        
-       // Очищаем обработанные движения
        if (this.scene.processedMoves) {
            this.scene.processedMoves.clear();
        }
@@ -587,7 +556,6 @@ GameController.prototype.resetGame = function() {
    this.showMessage('🔄 Новая битва!');
 };
 
-// ✅ checkPendingState
 GameController.prototype.checkPendingState = function() {
    if (this.pendingState && this.scene && this.scene.isReady) {
        console.log('✅ Применяем отложенное состояние');
@@ -598,7 +566,6 @@ GameController.prototype.checkPendingState = function() {
    return false;
 };
 
-// ✅ showMessage
 GameController.prototype.showMessage = function(text) {
    console.log('📝 ' + text);
    var container = document.getElementById('messages');
@@ -614,7 +581,6 @@ GameController.prototype.showMessage = function(text) {
    }, 2500);
 };
 
-// ✅ destroy
 GameController.prototype.destroy = function() {
    if (this.socket) {
        this.socket.off('moveAccepted');
@@ -638,4 +604,8 @@ GameController.prototype.destroy = function() {
 // Экспорт
 if (typeof window !== 'undefined') {
    window.GameController = GameController;
+}
+
+if (typeof module !== 'undefined' && module.exports) {
+   module.exports = { GameController: GameController };
 }

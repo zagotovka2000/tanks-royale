@@ -28,3 +28,37 @@
 │       └── (звуки, спрайты)
 └── package.json
  */
+
+
+/* /client/
+├── config/
+│   └── clientConfig.js
+├── controllers/
+│   ├── GameController.js
+│   └── InputController.js
+├── game/
+│   ├── EffectManager.js
+│   └── TankGame.js        (ОСНОВНАЯ ЛОГИКА)
+├── models/
+│   └── TankUnit.js
+├── network/
+│   └── SocketClient.js
+├── objects/
+│   ├── HexGrid.js
+│   └── TankSprite.js
+├── scenes/
+│   ├── BootScene.js
+│   └── GameScene.js
+├── utils/
+│   └── HexUtils.js
+└── main.js
+
+/server/
+├── config/
+│   └── serverConfig.js
+├── controllers/
+│   ├── GameController.js
+│   └── BotController.js
+├── services/
+│   └── GameService.js
+└── server.js */

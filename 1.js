@@ -1,64 +1,71 @@
-/* tanks-royale/
-├── server/
-│   └── server.js                 # Сервер (Socket.io)
-├── client/
-│   ├── main.js
-│   ├── game/
-│   │   ├── TankGame.js          # Логика игры (серверная + клиентская)
-│   │   ├── TankUnit.js          # Модель танка
-│   │   └── EffectManager.js     # Эффекты (дым)
-│   │   ├── FogOfWar.js          
-│   │   └── TankGame.js     
-│   ├── scenes/
-│   │   ├── BootScene.js         # Загрузка ресурсов
-│   │   └── GameScene.js         # Основная сцена с картой
-│   ├── objects/
-│   │   ├── HexGrid.js           # Отрисовка гексов
-│   │   └── TankSprite.js        # 2D-спрайт танка
-│   ├── controllers/
-│   │   ├── GameController.js    # Управление игрой
-│   │   └── InputController.js   # Ввод (клики по гексам)
-│   └── utils/
-│       └── hexUtils.js          # Утилиты для гексов (общие)
-├── public/
-│   ├── index.html
-│   ├── css/
-│   │   └── styles.css           # Стили
-│   └── assets/
-│       └── (звуки, спрайты)
-└── package.json
- */
-
-
-/* /client/
-├── config/
-│   └── clientConfig.js
-├── controllers/
-│   ├── GameController.js
-│   └── InputController.js
-├── game/
-│   ├── EffectManager.js
-│   └── TankGame.js        (ОСНОВНАЯ ЛОГИКА)
-├── models/
+/* 📦 SERVER
+│
+├── ⚙️ config/
+│   └── serverConfig.js         # Конфиг сервера
+│
+├── 🧠 controllers/             # Бизнес-логика
+│   ├── GameController.js       # Управление играми
+│   └── BotController.js        # Управление ботами
+│
+├── 🔧 services/                # Сервисный слой
+│   ├── GameService.js          # Логика игры (ходы, состояния)
+│   └── MoveValidator.js        # Валидация ходов
+│
+├── 👥 managers/
+│   └── ConnectionManager.js    # Управление подключениями
+│
+└── 🌐 server.js                # Точка входа сервера
+📦 CLIENT
+│
+├── 🧩 common/                  # Общие переиспользуемые элементы
+│   ├── constants/
+│   │   └── UnitTypes.js        # Типы юнитов
+│   └── types/
+│       └── Direction.js        # Направления (enum)
+│
+├── ⚙️ config/
+│   └── clientConfig.js         # Настройки клиента
+│
+├── 🔁 core/
+│   └── GameLoop.js             # Главный игровой цикл
+│
+├── 🎮 controllers/             # Управляющие модули
+│   ├── GameController.js       # Связь модели и представления
+│   ├── CameraController.js     # Управление камерой
+│   └── InputController.js      # Обработка ввода
+│
+├── 🧠 game/                    # Игровая логика и состояние
+│   ├── EffectManager.js        # Эффекты (взрывы, дым)
+│   ├── FogOfWar.js             # Туман войны
+│   └── TankGame.js             # Ядро игры
+│
+├── 📦 models/                  # Модели данных (POJO)
+│   ├── GameState.js
+│   ├── HexCell.js
 │   └── TankUnit.js
-├── network/
-│   └── SocketClient.js
-├── objects/
+│
+├── 🌐 network/
+│   └── SocketClient.js         # WebSocket клиент
+│
+├── 🎨 objects/                 # Игровые объекты с рендерингом
 │   ├── HexGrid.js
 │   └── TankSprite.js
-├── scenes/
+│
+├── 🎬 scenes/                  # Сцены Phaser
 │   ├── BootScene.js
 │   └── GameScene.js
-├── utils/
+│
+├── 🧮 utils/                   # Утилиты
+│   ├── MathUtils.js
 │   └── HexUtils.js
-└── main.js
-
-/server/
-├── config/
-│   └── serverConfig.js
-├── controllers/
-│   ├── GameController.js
-│   └── BotController.js
-├── services/
-│   └── GameService.js
-└── server.js */
+│
+├── 👁️ view/                    # Визуальный слой
+│   ├── animations/
+│   │   └── EffectAnimator.js   # Аниматор эффектов
+│   ├── renderers/
+│   │   ├── HexRenderer.js      # Отрисовка гексов
+│   │   └── TankRenderer.js     # Отрисовка танков
+│   └── ui/
+│       └── NotificationManager.js # Уведомления
+│
+└── 🚀 main.js                  # Точка входа клиента */

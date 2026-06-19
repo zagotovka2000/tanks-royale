@@ -1,4 +1,5 @@
-// client/scenes/GameScene.js - ИСПРАВЛЕНИЕ: ОБНОВЛЕННАЯ ОБРАБОТКА ДВИЖЕНИЙ
+// client/scenes/GameScene.js - ИСПРАВЛЕННАЯ ВЕРСИЯ
+// (добавлена загрузка ShootLogic + обновленная обработка движений)
 
 function GameScene() {
    Phaser.Scene.call(this, { key: 'GameScene' });
@@ -29,17 +30,48 @@ function GameScene() {
    this.processedMoves = new Set(); // Уже обработанные движения
    this.moveProcessingLock = false;
    this.lastProcessedState = null;
+   this.moveQueue = []; // Очередь движений
+   this.isProcessingQueue = false;
 }
 
 GameScene.prototype = Object.create(Phaser.Scene.prototype);
 GameScene.prototype.constructor = GameScene;
 
-GameScene.prototype.init = function() {
-   console.log('🔧 GameScene.init()');
+GameScene.prototype.init = function(data) {
+   console.log('🔧 GameScene.init()', data || '');
+   // Сохраняем данные, переданные из BootScene
+   if (data) {
+       this.isLocalGame = data.isLocalGame !== undefined ? data.isLocalGame : true;
+       this.socket = data.socket || null;
+   }
 };
 
 GameScene.prototype.create = function() {
    console.log('🎮 GameScene.create() START');
+   
+   // ✅ УБЕЖДАЕМСЯ, ЧТО SHOOTLOGIC ЗАГРУЖЕН
+   if (typeof ShootLogic === 'undefined') {
+       console.warn('⚠️ ShootLogic не загружен, загружаем...');
+       // Динамическая загрузка для браузера
+       var script = document.createElement('script');
+       script.src = '/client/game/ShootLogic.js';
+       document.head.appendChild(script);
+       
+       // Проверяем загрузку через небольшую задержку
+       var checkLoaded = function(attempts) {
+           if (typeof ShootLogic !== 'undefined') {
+               console.log('✅ ShootLogic успешно загружен');
+               return true;
+           } else if (attempts > 0) {
+               setTimeout(function() { checkLoaded(attempts - 1); }, 100);
+           } else {
+               console.error('❌ Не удалось загрузить ShootLogic');
+           }
+       };
+       setTimeout(function() { checkLoaded(10); }, 500);
+   } else {
+       console.log('✅ ShootLogic уже загружен');
+   }
    
    // Устанавливаем фон
    this.cameras.main.setBackgroundColor('#1a2a3a');

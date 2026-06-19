@@ -1,4 +1,4 @@
-// client/controllers/InputController.js - ИСПРАВЛЕНИЕ: ОБНОВЛЕННАЯ ЛОГИКА
+// client/controllers/InputController.js - ИСПРАВЛЕННАЯ ВЕРСИЯ
 
 function InputController(scene, gameController) {
    this.scene = scene;
@@ -9,29 +9,30 @@ function InputController(scene, gameController) {
    this.validMoveNeighbors = [];
    this.lastClickTime = 0;
    this.throttleDelay = 150;
-   this.selectedTank = null; // Танк, который выбран для движения
-   
-   // ✅ НОВЫЕ СВОЙСТВА
+   this.selectedTank = null; // Танк, выбранный для движения
    this.isProcessingAction = false;
    this.pendingMove = null;
    this.actionQueue = [];
+   
+   // Ссылка на логику стрельбы
+   this.shootLogic = null;
 }
 
 InputController.prototype.init = function() {
    var self = this;
    
+   // Инициализируем логику стрельбы
+   if (typeof ShootLogic !== 'undefined') {
+       this.shootLogic = new ShootLogic();
+       console.log('✅ ShootLogic инициализирован');
+   } else {
+       console.warn('⚠️ ShootLogic не найден, используется встроенная логика');
+   }
+   
    // Клик по игровому полю
    this.scene.input.on('pointerdown', function(pointer) {
        self.handleClick(pointer);
    });
-   
-   // Кнопка переключения режима
-   var modeBtn = document.getElementById('modeToggle');
-   if (modeBtn) {
-       modeBtn.addEventListener('click', function() {
-           self.toggleMode();
-       });
-   }
    
    // Кнопка выстрела
    var shootBtn = document.getElementById('shootBtn');
@@ -50,12 +51,12 @@ InputController.prototype.init = function() {
    }
    
    this.updateUI();
-   this.showMessage('🎮 Кликните по своему танку для переключения в режим движения');
-   this.showMessage('🔫 Режим: СТРЕЛЬБА (нажмите на свой танк для переключения)');
+   this.showMessage('🎮 Кликните по своему танку для переключения режима');
+   this.showMessage('🔫 Режим по умолчанию: СТРЕЛЬБА');
 };
 
 // ============================================
-// ✅ КЛЮЧЕВОЙ МЕТОД - обрабатывает клик по подсвеченной клетке
+// ОСНОВНОЙ МЕТОД ОБРАБОТКИ КЛИКА
 // ============================================
 InputController.prototype.handleClick = function(pointer) {
    if (!this.isEnabled) return;
@@ -64,7 +65,6 @@ InputController.prototype.handleClick = function(pointer) {
        return;
    }
    
-   // ✅ НЕ ОБРАБАТЫВАЕМ КЛИКИ ВО ВРЕМЯ АНИМАЦИИ
    if (this.isProcessingAction) {
        this.showMessage('⏳ Подождите, выполняется действие...');
        return;
@@ -74,51 +74,46 @@ InputController.prototype.handleClick = function(pointer) {
    if (now - this.lastClickTime < this.throttleDelay) return;
    this.lastClickTime = now;
    
-   console.log('🖱️ КЛИК в экранных координатах:', pointer.x, pointer.y);
-   
-   var camera = this.scene.cameras.main;
-   console.log('📷 Камера: scrollX=' + camera.scrollX.toFixed(1) + ', scrollY=' + camera.scrollY.toFixed(1) + ', zoom=' + camera.zoom.toFixed(2));
-   
    var hex = this.scene.hexGrid.pixelToHex(pointer.x, pointer.y);
-   
    if (!hex) {
        this.showMessage('❌ Клик мимо поля');
        return;
    }
-   
-   console.log('✅ Выбран гекс:', hex.q, hex.r);
    
    var state = this.scene.gameState;
    if (!state || !state.myTank) return;
    
    var myTank = state.myTank;
    
-   // ✅ ПРОВЕРЯЕМ КЛИК ПО СВОЕМУ ТАНКУ
+   // ============================================
+   // ✅ КЛИК ПО СВОЕМУ ТАНКУ - ПЕРЕКЛЮЧЕНИЕ РЕЖИМА
+   // ============================================
    if (myTank.q === hex.q && myTank.r === hex.r) {
-       // Если танк уже выбран - переключаем режим
-       if (this.selectedTank && this.selectedTank.q === hex.q && this.selectedTank.r === hex.r) {
-           this.toggleMode();
-       } else {
-           // Выбираем танк для движения
-           this.selectTank(myTank);
+       // Если танк уже выбран и мы в режиме движения - выключаем режим
+       if (this.selectedTank && this.moveMode) {
+           this.clearTankSelection();
+           this.moveMode = false;
+           this.updateUI();
+           this.showMessage('🔫 Режим СТРЕЛЬБЫ');
+           return;
        }
+       
+       // Включаем режим движения
+       this.selectTank(myTank);
        return;
    }
    
-   // ✅ ЕСЛИ В РЕЖИМЕ ДВИЖЕНИЯ И ВЫБРАН ТАНК
+   // ============================================
+   // ✅ РЕЖИМ ДВИЖЕНИЯ - КЛИК ПО ДОСТУПНОЙ КЛЕТКЕ
+   // ============================================
    if (this.moveMode && this.selectedTank) {
-       // Проверяем, является ли клетка доступной для движения
        var isValid = this.validMoveNeighbors.some(function(n) {
            return n.q === hex.q && n.r === hex.r;
        });
        
        if (isValid) {
-           console.log('✅ Клетка доступна, двигаемся!');
-           
-           // ✅ БЛОКИРУЕМ ОБРАБОТКУ
            this.isProcessingAction = true;
            
-           // ✅ ОТПРАВЛЯЕМ ЗАПРОС ДВИЖЕНИЯ
            this.gameController.requestMove(hex.q, hex.r, function(success, data) {
                this.isProcessingAction = false;
                
@@ -127,6 +122,7 @@ InputController.prototype.handleClick = function(pointer) {
                    this.clearTankSelection();
                    this.moveMode = false;
                    this.updateUI();
+                   this.showMessage('🔫 Режим СТРЕЛЬБЫ');
                } else {
                    this.showMessage('❌ ' + (data.message || 'Движение отклонено'));
                }
@@ -137,47 +133,57 @@ InputController.prototype.handleClick = function(pointer) {
        return;
    }
    
+   // ============================================
    // ✅ РЕЖИМ СТРЕЛЬБЫ - ВЫБОР ЦЕЛИ
+   // ============================================
    if (!this.moveMode) {
-       // Если клик по врагу - выбираем как цель
+       // Проверяем, есть ли враг на этой клетке
        var isEnemy = state.enemies && state.enemies.some(function(e) {
            return e.active && e.q === hex.q && e.r === hex.r;
        });
        
-       if (isEnemy) {
+       // Для игрока - можно стрелять по любым координатам
+       // Для врага - только если есть цель
+       if (this.shootLogic && this.shootLogic.canPlayerShootAnywhere()) {
+           // Игрок может стрелять куда угодно
            this.selectTarget(hex.q, hex.r);
+           if (isEnemy) {
+               this.showMessage('🎯 ЦЕЛЬ: ВРАГ на (' + hex.q + ', ' + hex.r + ')');
+           } else {
+               this.showMessage('🎯 Точка: (' + hex.q + ', ' + hex.r + ')');
+           }
+       } else if (isEnemy) {
+           // Враг может стрелять только по врагам
+           this.selectTarget(hex.q, hex.r);
+           this.showMessage('🎯 ЦЕЛЬ: ВРАГ на (' + hex.q + ', ' + hex.r + ')');
        } else {
-           // Если клик по пустой клетке - просто выбираем точку
-           this.selectTarget(hex.q, hex.r);
+           this.showMessage('⚠️ Выберите врага для стрельбы');
        }
    }
 };
 
 // ============================================
-// ✅ ОБНОВЛЕННЫЙ МЕТОД: Выбор танка для движения
+// ВЫБОР ТАНКА ДЛЯ ДВИЖЕНИЯ
 // ============================================
 InputController.prototype.selectTank = function(tank) {
-    console.log('🎯 Выбран танк для движения:', tank.q, tank.r);
-    
-    // ✅ СНАЧАЛА ПОЛНОСТЬЮ ОЧИЩАЕМ ВСЕ ПОДСВЕТКИ
-    this.scene.hexGrid.clearHighlight();
-    this.clearTarget();
-    
-    // Сохраняем выбранный танк
-    this.selectedTank = tank;
-    
-    // Переключаемся в режим движения
-    this.moveMode = true;
-    this.updateUI();
-    
-    // ✅ ПОДСВЕЧИВАЕМ ДОСТУПНЫЕ КЛЕТКИ
-    this.highlightMoveArea();
-    
-    this.showMessage('🚶 Режим движения: выберите подсвеченную клетку');
+   console.log('🎯 Выбран танк для движения:', tank.q, tank.r);
+   
+   // Очищаем всё
+   this.scene.hexGrid.clearHighlight();
+   this.clearTarget();
+   this.clearTankSelection();
+   
+   this.selectedTank = tank;
+   this.moveMode = true;
+   this.updateUI();
+   
+   // Подсвечиваем доступные клетки
+   this.highlightMoveArea();
+   this.showMessage('🚶 Режим движения: выберите подсвеченную клетку');
 };
 
 // ============================================
-// ✅ НОВЫЙ МЕТОД: Очистка выбора танка
+// ОЧИСТКА ВЫБОРА ТАНКА
 // ============================================
 InputController.prototype.clearTankSelection = function() {
    this.selectedTank = null;
@@ -186,128 +192,89 @@ InputController.prototype.clearTankSelection = function() {
 };
 
 // ============================================
-// ✅ ОБНОВЛЕННЫЙ toggleMode
+// ПОДСВЕТКА ДОСТУПНЫХ КЛЕТОК ДЛЯ ДВИЖЕНИЯ
 // ============================================
-InputController.prototype.toggleMode = function() {
-   if (this.isProcessingAction) {
-       this.showMessage('⏳ Подождите, выполняется действие...');
+InputController.prototype.highlightMoveArea = function() {
+   var state = this.scene.gameState;
+   if (!state || !state.myTank) return;
+   
+   var myTank = state.myTank;
+   if (!myTank.active) {
+       this.showMessage('⚠️ Ваш танк уничтожен');
        return;
    }
    
-   this.moveMode = !this.moveMode;
-   this.updateUI();
+   // Собираем все активные юниты
+   var allUnits = [];
+   if (state.myTank && state.myTank.active) allUnits.push(state.myTank);
+   if (state.enemies) {
+       for (var i = 0; i < state.enemies.length; i++) {
+           if (state.enemies[i].active) allUnits.push(state.enemies[i]);
+       }
+   }
    
-   if (this.moveMode) {
-       // Если переключаемся в режим движения - выбираем танк
-       var state = this.scene.gameState;
-       if (state && state.myTank && state.myTank.active) {
-           this.selectTank(state.myTank);
-       } else {
-           this.showMessage('⚠️ Ваш танк уничтожен');
-           this.moveMode = false;
-           this.updateUI();
+   // Получаем всех соседей
+   var neighbors = HexUtils.getNeighbors(myTank.q, myTank.r);
+   var valid = [];
+   
+   for (var i = 0; i < neighbors.length; i++) {
+       var n = neighbors[i];
+       
+       // Проверяем существование клетки
+       var cellExists = state.cells.some(function(c) {
+           return c.q === n.q && c.r === n.r;
+       });
+       if (!cellExists) continue;
+       
+       // Проверяем, не занята ли клетка
+       var occupied = allUnits.some(function(u) {
+           return u.active && u.q === n.q && u.r === n.r;
+       });
+       if (occupied) continue;
+       
+       valid.push(n);
+   }
+   
+   this.validMoveNeighbors = valid;
+   
+   // Подсвечиваем
+   if (valid.length > 0) {
+       this.scene.hexGrid.clearHighlight();
+       // Центр - желтый
+       this.scene.hexGrid.highlightHex(myTank.q, myTank.r, 0xffdd44);
+       // Доступные клетки - зеленые
+       for (var i = 0; i < valid.length; i++) {
+           this.scene.hexGrid.highlightHex(valid[i].q, valid[i].r, 0x44ff44);
        }
+       this.showMessage('🚶 Доступно клеток: ' + valid.length);
    } else {
-       // Выходим из режима движения
-       this.clearTankSelection();
-       this.showMessage('🔫 Режим СТРЕЛЬБЫ');
-       if (this.selectedTarget) {
-           this.scene.hexGrid.highlightHex(this.selectedTarget.q, this.selectedTarget.r, 0xffeb3b);
-       }
+       this.showMessage('⚠️ Нет доступных клеток для движения');
    }
 };
 
 // ============================================
-// ✅ ИСПРАВЛЕННЫЙ highlightMoveArea - ЖЕЛТЫЙ ЦЕНТР, ЗЕЛЕНЫЕ СОСЕДИ
-// ============================================
-InputController.prototype.highlightMoveArea = function() {
-    var state = this.scene.gameState;
-    if (!state || !state.myTank) return;
-    
-    var myTank = state.myTank;
-    if (!myTank.active) {
-        this.showMessage('⚠️ Ваш танк уничтожен');
-        return;
-    }
-    
-    console.log('🚶 highlightMoveArea() - танк на позиции:', myTank.q, myTank.r);
-    
-    // Собираем все активные юниты
-    var allUnits = [];
-    if (state.myTank && state.myTank.active) allUnits.push(state.myTank);
-    if (state.enemies) {
-        for (var i = 0; i < state.enemies.length; i++) {
-            if (state.enemies[i].active) allUnits.push(state.enemies[i]);
-        }
-    }
-    
-    // ✅ ПОЛУЧАЕМ ВСЕ 6 СОСЕДНИХ КЛЕТОК
-    var neighbors = HexUtils.getNeighbors(myTank.q, myTank.r);
-    var valid = [];
-    
-    for (var i = 0; i < neighbors.length; i++) {
-        var n = neighbors[i];
-        
-        // Проверяем, что клетка существует на карте
-        var cellExists = state.cells.some(function(c) {
-            return c.q === n.q && c.r === n.r;
-        });
-        if (!cellExists) continue;
-        
-        // Проверяем, не занята ли клетка
-        var occupied = allUnits.some(function(u) {
-            return u.active && u.q === n.q && u.r === n.r;
-        });
-        if (occupied) continue;
-        
-        valid.push(n);
-    }
-    
-    this.validMoveNeighbors = valid;
-    console.log('📊 Доступно клеток для движения:', valid.length);
-    
-    // ✅ ПОДСВЕЧИВАЕМ ВСЕ ДОСТУПНЫЕ КЛЕТКИ
-    if (valid.length > 0) {
-        // Сначала очищаем старые подсветки
-        this.scene.hexGrid.clearHighlight();
-        // Подсвечиваем центр (свой танк) - желтым
-        this.scene.hexGrid.highlightHex(myTank.q, myTank.r, 0xffdd44);
-        // Подсвечиваем доступные клетки - зеленым
-        for (var i = 0; i < valid.length; i++) {
-            this.scene.hexGrid.highlightHex(valid[i].q, valid[i].r, 0x44ff44);
-        }
-        this.showMessage('🚶 Доступно клеток: ' + valid.length);
-    } else {
-        console.warn('⚠️ Нет доступных клеток для движения');
-        this.showMessage('⚠️ Нет доступных клеток для движения');
-    }
-};
-
-// ============================================
-// ✅ ОБНОВЛЕННЫЙ selectTarget
+// ВЫБОР ЦЕЛИ ДЛЯ СТРЕЛЬБЫ
 // ============================================
 InputController.prototype.selectTarget = function(q, r) {
-   console.log('🎯 selectTarget вызван для гекса:', q, r);
+   console.log('🎯 selectTarget:', q, r);
    
-   // Очищаем режим движения если активен
+   // Если в режиме движения - выключаем
    if (this.moveMode) {
        this.clearTankSelection();
        this.moveMode = false;
        this.updateUI();
    }
    
-   // Проверяем, не выбран ли уже этот гекс
+   // Если тот же гекс - снимаем цель
    if (this.selectedTarget && this.selectedTarget.q === q && this.selectedTarget.r === r) {
        this.clearTarget();
        return;
    }
    
    this.selectedTarget = { q: q, r: r };
-   
-   // Подсвечиваем гекс
    this.scene.hexGrid.highlightHex(q, r, 0xffeb3b);
    
-   // Проверяем, есть ли враг на этой клетке
+   // Проверяем врага
    var state = this.scene.gameState;
    var hasEnemy = false;
    if (state && state.enemies) {
@@ -324,7 +291,6 @@ InputController.prototype.selectTarget = function(q, r) {
    var shootBtn = document.getElementById('shootBtn');
    if (shootBtn) shootBtn.classList.remove('hidden');
    
-   // Обновляем HUD
    var targetEl = document.getElementById('targetCoords');
    if (targetEl) targetEl.textContent = '(' + q + ', ' + r + ')';
    
@@ -333,10 +299,9 @@ InputController.prototype.selectTarget = function(q, r) {
 };
 
 // ============================================
-// ✅ ОБНОВЛЕННЫЙ clearTarget
+// ОЧИСТКА ЦЕЛИ
 // ============================================
 InputController.prototype.clearTarget = function() {
-   console.log('🎯 clearTarget вызван');
    this.selectedTarget = null;
    this.scene.hexGrid.clearHighlight();
    
@@ -351,7 +316,7 @@ InputController.prototype.clearTarget = function() {
 };
 
 // ============================================
-// ✅ ОБНОВЛЕННЫЙ executeShoot
+// ВЫПОЛНЕНИЕ ВЫСТРЕЛА
 // ============================================
 InputController.prototype.executeShoot = function() {
    if (!this.selectedTarget) {
@@ -377,13 +342,50 @@ InputController.prototype.executeShoot = function() {
    
    var myTank = state.myTank;
    var target = this.selectedTarget;
-   var distance = HexUtils.distance(myTank.q, myTank.r, target.q, target.r);
    
-   if (distance > myTank.range) {
-       this.showMessage('⚠️ Слишком далеко! Дистанция ' + distance);
-       return;
+   // ============================================
+   // ✅ ИСПОЛЬЗУЕМ НОВУЮ ЛОГИКУ СТРЕЛЬБЫ
+   // ============================================
+   if (this.shootLogic) {
+       // Получаем всех юнитов
+       var allUnits = [];
+       if (state.myTank && state.myTank.active) {
+           allUnits.push(state.myTank);
+       }
+       if (state.enemies) {
+           for (var i = 0; i < state.enemies.length; i++) {
+               if (state.enemies[i].active) {
+                   allUnits.push(state.enemies[i]);
+               }
+           }
+       }
+       
+       // Проверяем возможность выстрела
+       var check = this.shootLogic.canShootAt(myTank, target.q, target.r, allUnits);
+       
+       if (!check.canShoot) {
+           this.showMessage('⚠️ ' + check.reason);
+           return;
+       }
+       
+       // Для игрока - нет ограничений по дальности
+       // Для врага - проверяем дальность
+       if (!myTank.isPlayer) {
+           if (check.distance > this.shootLogic.config.enemyMaxRange) {
+               this.showMessage('⚠️ Слишком далеко! Макс. ' + this.shootLogic.config.enemyMaxRange + ' гексов');
+               return;
+           }
+       }
+   } else {
+       // Fallback: старая логика
+       var distance = HexUtils.distance(myTank.q, myTank.r, target.q, target.r);
+       if (distance > myTank.range && !myTank.isPlayer) {
+           this.showMessage('⚠️ Слишком далеко! Дистанция ' + distance);
+           return;
+       }
    }
    
+   // Проверка кулдауна
    var cooldown = this.gameController.getRemainingCooldown();
    if (cooldown > 0) {
        var sec = Math.ceil(cooldown / 1000);
@@ -391,34 +393,31 @@ InputController.prototype.executeShoot = function() {
        return;
    }
    
-   // ✅ БЛОКИРУЕМ ОБРАБОТКУ
+   // Блокируем и стреляем
    this.isProcessingAction = true;
    
-   // ✅ ОТПРАВЛЯЕМ ЗАПРОС ВЫСТРЕЛА
    var result = this.gameController.shootAt(target.q, target.r);
    if (result && result.success) {
        this.showMessage('🔫 Выстрел по (' + target.q + ', ' + target.r + ')!');
-       // Очищаем цель после выстрела
        this.clearTarget();
    } else if (result && !result.success) {
        this.showMessage('❌ ' + (result.message || 'Ошибка выстрела'));
    }
    
-   // Разблокируем через секунду (защита от спама)
    setTimeout(function() {
        this.isProcessingAction = false;
    }.bind(this), 500);
 };
 
 // ============================================
-// ✅ ОБНОВЛЕННЫЙ updateUI
+// ОБНОВЛЕНИЕ UI
 // ============================================
 InputController.prototype.updateUI = function() {
    var modeIndicator = document.getElementById('modeIndicator');
    if (modeIndicator) {
        if (this.moveMode && this.selectedTank) {
            modeIndicator.textContent = '🚶 ДВИЖЕНИЕ (выберите клетку)';
-           modeIndicator.className = '';
+           modeIndicator.className = 'move-mode';
        } else {
            modeIndicator.textContent = '🔫 СТРЕЛЬБА';
            modeIndicator.className = 'shoot-mode';
@@ -436,16 +435,13 @@ InputController.prototype.updateUI = function() {
 };
 
 // ============================================
-// ✅ ОБНОВЛЕННЫЙ setGameState
+// ОБНОВЛЕНИЕ СОСТОЯНИЯ
 // ============================================
 InputController.prototype.setGameState = function(state) {
-   // Если танк игрока переместился - обновляем подсветку движения
    if (this.moveMode && state && state.myTank) {
-       // Проверяем, не изменилась ли позиция танка
        if (this.selectedTank) {
            var currentTank = state.myTank;
            if (this.selectedTank.q !== currentTank.q || this.selectedTank.r !== currentTank.r) {
-               // Танк переместился, обновляем
                this.selectedTank = currentTank;
                this.highlightMoveArea();
            }
@@ -454,15 +450,12 @@ InputController.prototype.setGameState = function(state) {
 };
 
 // ============================================
-// ✅ ВСПОМОГАТЕЛЬНЫЙ МЕТОД ДЛЯ ПРОВЕРКИ ГОТОВНОСТИ
+// ВСПОМОГАТЕЛЬНЫЕ МЕТОДЫ
 // ============================================
 InputController.prototype.isReady = function() {
    return !this.isProcessingAction && this.isEnabled;
 };
 
-// ============================================
-// ✅ ОБНОВЛЕННЫЙ showMessage
-// ============================================
 InputController.prototype.showMessage = function(text) {
    console.log('📝 ' + text);
    var container = document.getElementById('messages');
@@ -473,15 +466,11 @@ InputController.prototype.showMessage = function(text) {
    msg.textContent = text;
    container.appendChild(msg);
    
-   var self = this;
    setTimeout(function() {
        if (msg && msg.remove) msg.remove();
    }, 2500);
 };
 
-// ============================================
-// ✅ ОБНОВЛЕННЫЙ destroy
-// ============================================
 InputController.prototype.destroy = function() {
    if (this.scene && this.scene.input) {
        this.scene.input.off('pointerdown');
@@ -493,6 +482,7 @@ InputController.prototype.destroy = function() {
    this.validMoveNeighbors = [];
    this.actionQueue = [];
    this.isProcessingAction = false;
+   this.shootLogic = null;
 };
 
 // Экспорт

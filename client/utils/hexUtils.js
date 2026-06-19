@@ -1,7 +1,7 @@
-// client/utils/HexUtils.js - ИСПРАВЛЕНИЕ: ДОБАВЛЕННЫЕ МЕТОДЫ ДЛЯ СЕРВЕРА
+// client/utils/HexUtils.js - ИСПРАВЛЕННАЯ ВЕРСИЯ
 
 var HexUtils = {
-   // ✅ 6 НАПРАВЛЕНИЙ ДЛЯ ГЕКСАГОНАЛЬНОЙ СЕТКИ (ТОЛЬКО Q И R)
+   // ✅ 6 НАПРАВЛЕНИЙ ДЛЯ ГЕКСАГОНАЛЬНОЙ СЕТКИ
    directions: [
        { q: 1, r: 0, name: 'right' },
        { q: 1, r: -1, name: 'up-right' },
@@ -28,13 +28,13 @@ var HexUtils = {
    },
 
    // ============================================
-   // ✅ УЛУЧШЕННЫЙ getDirection С ПРОВЕРКОЙ
+   // ✅ ИСПРАВЛЕННЫЙ getDirection - РАБОТАЕТ ДЛЯ ЛЮБЫХ РАССТОЯНИЙ
    // ============================================
    getDirection: function(fromQ, fromR, toQ, toR) {
        var dq = toQ - fromQ;
        var dr = toR - fromR;
        
-       // Проверяем все направления
+       // Если это соседняя клетка - точное совпадение
        for (var i = 0; i < this.directions.length; i++) {
            var d = this.directions[i];
            if (d.q === dq && d.r === dr) {
@@ -42,13 +42,33 @@ var HexUtils = {
            }
        }
        
-       // Если не нашли - возвращаем 'right' по умолчанию
-       console.warn('⚠️ Неизвестное направление:', dq, dr, 'используем right');
-       return 'right';
+       // Для дальних целей - находим ближайшее направление
+       // Нормализуем вектор
+       var length = Math.sqrt(dq * dq + dr * dr);
+       if (length === 0) return 'right';
+       
+       var normQ = dq / length;
+       var normR = dr / length;
+       
+       // Находим направление с максимальным скалярным произведением
+       var bestDirection = 'right';
+       var bestDot = -Infinity;
+       
+       for (var i = 0; i < this.directions.length; i++) {
+           var d = this.directions[i];
+           // Скалярное произведение нормализованного вектора и направления
+           var dot = normQ * d.q + normR * d.r;
+           if (dot > bestDot) {
+               bestDot = dot;
+               bestDirection = d.name;
+           }
+       }
+       
+       return bestDirection;
    },
 
    // ============================================
-   // ✅ getNeighbors с именами направлений
+   // ПОЛУЧЕНИЕ СОСЕДЕЙ С ИМЕНАМИ НАПРАВЛЕНИЙ
    // ============================================
    getNeighbors: function(q, r) {
        var result = [];
@@ -83,7 +103,7 @@ var HexUtils = {
    },
 
    // ============================================
-   // ✅ НОВЫЙ МЕТОД - ПОЛУЧЕНИЕ ВСЕХ КЛЕТОК В РАДИУСЕ
+   // ПОЛУЧЕНИЕ ВСЕХ КЛЕТОК В РАДИУСЕ
    // ============================================
    getCellsInRadius: function(centerQ, centerR, radius, maxRadius) {
        var cells = [];
@@ -104,7 +124,7 @@ var HexUtils = {
    },
 
    // ============================================
-   // ✅ НОВЫЙ МЕТОД - ПРОВЕРКА ЗАНЯТОСТИ КЛЕТКИ
+   // ПРОВЕРКА ЗАНЯТОСТИ КЛЕТКИ
    // ============================================
    isCellOccupied: function(q, r, units) {
        if (!units || !Array.isArray(units)) return false;
@@ -115,7 +135,7 @@ var HexUtils = {
    },
 
    // ============================================
-   // ✅ НОВЫЙ МЕТОД - ПОЛУЧЕНИЕ СВОБОДНЫХ СОСЕДЕЙ
+   // ПОЛУЧЕНИЕ СВОБОДНЫХ СОСЕДЕЙ
    // ============================================
    getFreeNeighbors: function(q, r, units, maxRadius) {
        var neighbors = this.getNeighbors(q, r);
@@ -132,7 +152,7 @@ var HexUtils = {
    },
 
    // ============================================
-   // ✅ НОВЫЙ МЕТОД - ПОЛУЧЕНИЕ ВСЕХ ЮНИТОВ НА КАРТЕ
+   // ПОЛУЧЕНИЕ ВСЕХ ЮНИТОВ НА КАРТЕ
    // ============================================
    getAllUnitsOnMap: function(players, enemies) {
        var allUnits = [];
@@ -157,7 +177,7 @@ var HexUtils = {
    },
 
    // ============================================
-   // ✅ НОВЫЙ МЕТОД - ПОЛУЧЕНИЕ ВРАГОВ В РАДИУСЕ
+   // ПОЛУЧЕНИЕ ВРАГОВ В РАДИУСЕ
    // ============================================
    getEnemiesInRadius: function(centerQ, centerR, radius, enemies, maxRadius) {
        var result = [];
@@ -178,7 +198,7 @@ var HexUtils = {
    },
 
    // ============================================
-   // ✅ НОВЫЙ МЕТОД - ПОЛУЧЕНИЕ ОБЪЕКТА НАПРАВЛЕНИЯ
+   // ПОЛУЧЕНИЕ ОБЪЕКТА НАПРАВЛЕНИЯ
    // ============================================
    getDirectionVector: function(directionName) {
        for (var i = 0; i < this.directions.length; i++) {
@@ -190,7 +210,7 @@ var HexUtils = {
    },
 
    // ============================================
-   // ✅ НОВЫЙ МЕТОД - ПОВОРОТ НАПРАВЛЕНИЯ
+   // ПОВОРОТ НАПРАВЛЕНИЯ
    // ============================================
    rotateDirection: function(directionName, steps) {
        var index = -1;
@@ -208,7 +228,7 @@ var HexUtils = {
    },
 
    // ============================================
-   // ✅ НОВЫЙ МЕТОД - ПРОВЕРКА НА ВРАЖДЕБНОСТЬ
+   // ПРОВЕРКА НА ВРАЖДЕБНОСТЬ
    // ============================================
    isEnemy: function(unit1, unit2) {
        if (!unit1 || !unit2) return false;
@@ -216,7 +236,7 @@ var HexUtils = {
    },
 
    // ============================================
-   // ✅ НОВЫЙ МЕТОД - ПОЛУЧЕНИЕ ВСЕХ СОСЕДЕЙ С ПРОВЕРКОЙ
+   // ПОЛУЧЕНИЕ ВСЕХ СОСЕДЕЙ С ПРОВЕРКОЙ
    // ============================================
    getValidNeighbors: function(q, r, maxRadius, filterFn) {
        var neighbors = this.getNeighbors(q, r);

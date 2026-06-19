@@ -1,4 +1,4 @@
-// client/controllers/InputController.js - ИСПРАВЛЕННАЯ ВЕРСИЯ
+// client/controllers/InputController.js - ИСПРАВЛЕННАЯ ВЕРСИЯ С КУЛДАУНАМИ
 
 function InputController(scene, gameController) {
    this.scene = scene;
@@ -86,7 +86,7 @@ InputController.prototype.handleClick = function(pointer) {
    var myTank = state.myTank;
    
    // ============================================
-   // ✅ КЛИК ПО СВОЕМУ ТАНКУ - ПЕРЕКЛЮЧЕНИЕ РЕЖИМА
+   // КЛИК ПО СВОЕМУ ТАНКУ - ПЕРЕКЛЮЧЕНИЕ РЕЖИМА
    // ============================================
    if (myTank.q === hex.q && myTank.r === hex.r) {
        // Если танк уже выбран и мы в режиме движения - выключаем режим
@@ -104,7 +104,7 @@ InputController.prototype.handleClick = function(pointer) {
    }
    
    // ============================================
-   // ✅ РЕЖИМ ДВИЖЕНИЯ - КЛИК ПО ДОСТУПНОЙ КЛЕТКЕ
+   // РЕЖИМ ДВИЖЕНИЯ - КЛИК ПО ДОСТУПНОЙ КЛЕТКЕ
    // ============================================
    if (this.moveMode && this.selectedTank) {
        var isValid = this.validMoveNeighbors.some(function(n) {
@@ -134,7 +134,7 @@ InputController.prototype.handleClick = function(pointer) {
    }
    
    // ============================================
-   // ✅ РЕЖИМ СТРЕЛЬБЫ - ВЫБОР ЦЕЛИ
+   // РЕЖИМ СТРЕЛЬБЫ - ВЫБОР ЦЕЛИ
    // ============================================
    if (!this.moveMode) {
        // Проверяем, есть ли враг на этой клетке
@@ -143,7 +143,6 @@ InputController.prototype.handleClick = function(pointer) {
        });
        
        // Для игрока - можно стрелять по любым координатам
-       // Для врага - только если есть цель
        if (this.shootLogic && this.shootLogic.canPlayerShootAnywhere()) {
            // Игрок может стрелять куда угодно
            this.selectTarget(hex.q, hex.r);
@@ -316,7 +315,7 @@ InputController.prototype.clearTarget = function() {
 };
 
 // ============================================
-// ВЫПОЛНЕНИЕ ВЫСТРЕЛА
+// ✅ ВЫПОЛНЕНИЕ ВЫСТРЕЛА С ПРОВЕРКОЙ КУЛДАУНА
 // ============================================
 InputController.prototype.executeShoot = function() {
    if (!this.selectedTarget) {
@@ -344,7 +343,17 @@ InputController.prototype.executeShoot = function() {
    var target = this.selectedTarget;
    
    // ============================================
-   // ✅ ИСПОЛЬЗУЕМ НОВУЮ ЛОГИКУ СТРЕЛЬБЫ
+   // ✅ ПРОВЕРКА КУЛДАУНА С ИСПОЛЬЗОВАНИЕМ myTank.id
+   // ============================================
+   var cooldown = this.gameController.getRemainingShootCooldown(myTank.id);
+   if (cooldown > 0) {
+       var sec = Math.ceil(cooldown / 1000);
+       this.showMessage('⏱️ Перезарядка: ' + sec + ' сек');
+       return;
+   }
+   
+   // ============================================
+   // ПРОВЕРКА ВОЗМОЖНОСТИ СТРЕЛЬБЫ
    // ============================================
    if (this.shootLogic) {
        // Получаем всех юнитов
@@ -367,15 +376,6 @@ InputController.prototype.executeShoot = function() {
            this.showMessage('⚠️ ' + check.reason);
            return;
        }
-       
-       // Для игрока - нет ограничений по дальности
-       // Для врага - проверяем дальность
-       if (!myTank.isPlayer) {
-           if (check.distance > this.shootLogic.config.enemyMaxRange) {
-               this.showMessage('⚠️ Слишком далеко! Макс. ' + this.shootLogic.config.enemyMaxRange + ' гексов');
-               return;
-           }
-       }
    } else {
        // Fallback: старая логика
        var distance = HexUtils.distance(myTank.q, myTank.r, target.q, target.r);
@@ -383,14 +383,6 @@ InputController.prototype.executeShoot = function() {
            this.showMessage('⚠️ Слишком далеко! Дистанция ' + distance);
            return;
        }
-   }
-   
-   // Проверка кулдауна
-   var cooldown = this.gameController.getRemainingCooldown();
-   if (cooldown > 0) {
-       var sec = Math.ceil(cooldown / 1000);
-       this.showMessage('⏱️ Перезарядка: ' + sec + ' сек');
-       return;
    }
    
    // Блокируем и стреляем
@@ -402,6 +394,11 @@ InputController.prototype.executeShoot = function() {
        this.clearTarget();
    } else if (result && !result.success) {
        this.showMessage('❌ ' + (result.message || 'Ошибка выстрела'));
+       // Если выстрел не удался из-за кулдауна - показываем сообщение
+       if (result.cooldown) {
+           var sec = Math.ceil(result.cooldown / 1000);
+           this.showMessage('⏱️ Перезарядка: ' + sec + ' сек');
+       }
    }
    
    setTimeout(function() {

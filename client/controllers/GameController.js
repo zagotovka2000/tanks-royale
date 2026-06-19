@@ -1,4 +1,4 @@
-// client/controllers/GameController.js - ПОЛНАЯ ИСПРАВЛЕННАЯ ВЕРСИЯ
+// client/controllers/GameController.js - ИСПРАВЛЕННАЯ ВЕРСИЯ С ИНДИВИДУАЛЬНЫМИ КУЛДАУНАМИ
 
 function GameController(scene, socket) {
    this.scene = scene;
@@ -10,7 +10,7 @@ function GameController(scene, socket) {
    this.isWaitingForResponse = false;
    this.moveCallbacks = new Map();
    
-   // ✅ ДОБАВЛЯЕМ КЭШ ДЛЯ КУЛДАУНОВ
+   // Кэш для кулдаунов
    this._cachedCooldowns = {
        move: 0,
        shoot: 0
@@ -19,7 +19,6 @@ function GameController(scene, socket) {
 }
 
 GameController.prototype.init = function() {
-   // ✅ Получаем TankGame из правильного места
    var TankGameClass = window.TankGame || 
                        (typeof require !== 'undefined' ? require('../game/TankGame.js').TankGame : null);
    
@@ -48,28 +47,88 @@ GameController.prototype.init = function() {
 };
 
 // ============================================
-// МЕТОДЫ КУЛДАУНОВ
+// ✅ МЕТОДЫ КУЛДАУНОВ С UNIT ID
 // ============================================
 
-GameController.prototype.getRemainingCooldown = function() {
+GameController.prototype.getRemainingCooldown = function(unitId) {
    if (!this.gameInstance) return 0;
-   
-   var moveCooldown = this.gameInstance.getRemainingMoveCooldown ? 
-       this.gameInstance.getRemainingMoveCooldown() : 0;
-   var shootCooldown = this.gameInstance.getRemainingShootCooldown ? 
-       this.gameInstance.getRemainingShootCooldown() : 0;
-   
-   return Math.max(moveCooldown, shootCooldown);
+   if (unitId && typeof this.gameInstance.getRemainingCooldown === 'function') {
+       return this.gameInstance.getRemainingCooldown(unitId);
+   }
+   // Fallback для совместимости
+   return this.getRemainingMoveCooldown(unitId) || this.getRemainingShootCooldown(unitId) || 0;
 };
 
-GameController.prototype.getRemainingMoveCooldown = function() {
-   if (!this.gameInstance || !this.gameInstance.getRemainingMoveCooldown) return 0;
-   return this.gameInstance.getRemainingMoveCooldown();
+GameController.prototype.getRemainingMoveCooldown = function(unitId) {
+   if (!this.gameInstance) return 0;
+   if (unitId && typeof this.gameInstance.getRemainingMoveCooldown === 'function') {
+       return this.gameInstance.getRemainingMoveCooldown(unitId);
+   }
+   // Fallback - используем первого игрока
+   var player = this.gameInstance.getFirstPlayer();
+   if (player && typeof this.gameInstance.getRemainingMoveCooldown === 'function') {
+       return this.gameInstance.getRemainingMoveCooldown(player.id);
+   }
+   return 0;
 };
 
-GameController.prototype.getRemainingShootCooldown = function() {
-   if (!this.gameInstance || !this.gameInstance.getRemainingShootCooldown) return 0;
-   return this.gameInstance.getRemainingShootCooldown();
+GameController.prototype.getRemainingShootCooldown = function(unitId) {
+   if (!this.gameInstance) return 0;
+   if (unitId && typeof this.gameInstance.getRemainingShootCooldown === 'function') {
+       return this.gameInstance.getRemainingShootCooldown(unitId);
+   }
+   // Fallback - используем первого игрока
+   var player = this.gameInstance.getFirstPlayer();
+   if (player && typeof this.gameInstance.getRemainingShootCooldown === 'function') {
+       return this.gameInstance.getRemainingShootCooldown(player.id);
+   }
+   return 0;
+};
+
+GameController.prototype.canShoot = function(unitId) {
+   if (!this.gameInstance) return false;
+   
+   // Если передан unitId - используем его
+   if (unitId) {
+       var unit = this.gameInstance.getAllUnits().find(function(u) { 
+           return u.id === unitId && u.active; 
+       });
+       if (!unit) return false;
+       if (typeof this.gameInstance.canShoot === 'function') {
+           return this.gameInstance.canShoot(unit);
+       }
+   }
+   
+   // Fallback - используем первого игрока
+   var player = this.gameInstance.getFirstPlayer();
+   if (!player) return false;
+   if (typeof this.gameInstance.canShoot === 'function') {
+       return this.gameInstance.canShoot(player);
+   }
+   return true;
+};
+
+GameController.prototype.canMove = function(unitId) {
+   if (!this.gameInstance) return false;
+   
+   // Если передан unitId - используем его
+   if (unitId) {
+       var unit = this.gameInstance.getAllUnits().find(function(u) { 
+           return u.id === unitId && u.active; 
+       });
+       if (!unit) return false;
+       if (typeof this.gameInstance.canMove === 'function') {
+           return this.gameInstance.canMove(unit);
+       }
+   }
+   
+   // Fallback - используем первого игрока
+   var player = this.gameInstance.getFirstPlayer();
+   if (!player) return false;
+   if (typeof this.gameInstance.canMove === 'function') {
+       return this.gameInstance.canMove(player);
+   }
+   return true;
 };
 
 GameController.prototype.updateCooldownCache = function() {
@@ -77,24 +136,16 @@ GameController.prototype.updateCooldownCache = function() {
    
    var now = Date.now();
    if (now - this._lastCooldownUpdate > 50) {
-       this._cachedCooldowns.move = this.getRemainingMoveCooldown();
-       this._cachedCooldowns.shoot = this.getRemainingShootCooldown();
+       var player = this.gameInstance.getFirstPlayer();
+       if (player) {
+           this._cachedCooldowns.move = this.getRemainingMoveCooldown(player.id);
+           this._cachedCooldowns.shoot = this.getRemainingShootCooldown(player.id);
+       } else {
+           this._cachedCooldowns.move = 0;
+           this._cachedCooldowns.shoot = 0;
+       }
        this._lastCooldownUpdate = now;
    }
-};
-
-GameController.prototype.canShoot = function() {
-   if (!this.gameInstance) return false;
-   var player = this.gameInstance.getFirstPlayer();
-   if (!player) return false;
-   return this.gameInstance.canShoot ? this.gameInstance.canShoot(player) : true;
-};
-
-GameController.prototype.canMove = function() {
-   if (!this.gameInstance) return false;
-   var player = this.gameInstance.getFirstPlayer();
-   if (!player) return false;
-   return this.gameInstance.canMove ? this.gameInstance.canMove(player) : true;
 };
 
 // ============================================
@@ -118,8 +169,9 @@ GameController.prototype.requestMove = function(q, r, callback) {
        return false;
    }
    
-   if (!this.canMove()) {
-       var remaining = this.getRemainingMoveCooldown();
+   // ✅ ИСПОЛЬЗУЕМ player.id ДЛЯ КУЛДАУНА
+   if (!this.canMove(player.id)) {
+       var remaining = this.getRemainingMoveCooldown(player.id);
        if (this.scene && this.scene.inputController) {
            this.scene.inputController.showMessage('⏱️ Кулдаун движения: ' + Math.ceil(remaining / 1000) + 'с');
        }
@@ -257,6 +309,16 @@ GameController.prototype.executeMoveLocally = function(q, r, callback) {
    var fromQ = player.q;
    var fromR = player.r;
    
+   // ✅ ИСПОЛЬЗУЕМ player.id ДЛЯ ДВИЖЕНИЯ
+   if (!this.canMove(player.id)) {
+       var remaining = this.getRemainingMoveCooldown(player.id);
+       if (this.scene && this.scene.inputController) {
+           this.scene.inputController.showMessage('⏱️ Кулдаун движения: ' + Math.ceil(remaining / 1000) + 'с');
+       }
+       if (callback) callback(false, { message: 'Кулдаун движения', remaining: remaining });
+       return false;
+   }
+   
    var moved = this.gameInstance.moveToCell(player.id, q, r);
    if (!moved) {
        if (callback) callback(false, { message: 'Движение невозможно' });
@@ -308,8 +370,9 @@ GameController.prototype.shootAt = function(q, r) {
    var player = this.gameInstance.getFirstPlayer();
    if (!player) return { success: false, message: 'Игрок не найден' };
    
-   if (!this.canShoot()) {
-       var remaining = this.getRemainingShootCooldown();
+   // ✅ ИСПОЛЬЗУЕМ player.id ДЛЯ КУЛДАУНА
+   if (!this.canShoot(player.id)) {
+       var remaining = this.getRemainingShootCooldown(player.id);
        if (this.scene && this.scene.inputController) {
            this.scene.inputController.showMessage('⏱️ Перезарядка: ' + Math.ceil(remaining / 1000) + 'с');
        }
@@ -328,6 +391,15 @@ GameController.prototype.shootAt = function(q, r) {
 GameController.prototype.executeShootLocally = function(q, r) {
    var player = this.gameInstance.getFirstPlayer();
    if (!player) return { success: false, message: 'Игрок не найден' };
+   
+   // ✅ ИСПОЛЬЗУЕМ player.id ДЛЯ КУЛДАУНА
+   if (!this.canShoot(player.id)) {
+       var remaining = this.getRemainingShootCooldown(player.id);
+       if (this.scene && this.scene.inputController) {
+           this.scene.inputController.showMessage('⏱️ Перезарядка: ' + Math.ceil(remaining / 1000) + 'с');
+       }
+       return { success: false, message: 'Перезарядка', cooldown: remaining };
+   }
    
    var result = this.gameInstance.shootAtCell(player.id, q, r);
    this.updateGameState();

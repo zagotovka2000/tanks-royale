@@ -1,4 +1,4 @@
-// client/game/TankGame.js - ИСПРАВЛЕННАЯ ВЕРСИЯ С SHOOTLOGIC
+// client/game/TankGame.js - ИСПРАВЛЕННАЯ ВЕРСИЯ С ИНДИВИДУАЛЬНЫМИ КУЛДАУНАМИ
 
 (function() {
    'use strict';
@@ -15,42 +15,62 @@
        this.radius = 10;
        this.gameOver = false;
        this.winner = null;
-       this.lastMoveTime = 0;
-       this.moveCooldown = 1000;
-       this.lastShootTime = 0;
-       this.shootCooldown = 2500;
-       this._lastPositions = new Map();
        this.cells = [];
        this.players = [];
        this.enemies = [];
        this.effectManager = new EffectManager();
        
+       // ⏱️ ИНДИВИДУАЛЬНЫЕ КУЛДАУНЫ ДЛЯ КАЖДОГО ЮНИТА
+       this.unitCooldowns = new Map(); // key: unitId, value: { lastMove: 0, lastShoot: 0 }
+       
+       // Базовые настройки кулдаунов
+       this.moveCooldown = 1000;
+       this.shootCooldown = 2500;
+       
        // Инициализируем логику стрельбы
        this.shootLogic = new ShootLogic();
+       
+       this._lastPositions = new Map();
        
        this.generateMap();
        this.initializeUnits();
    }
    
-   // ===== МЕТОДЫ КУЛДАУНА =====
+   // ===== МЕТОДЫ КУЛДАУНА (индивидуальные) =====
+   TankGame.prototype.getCooldowns = function(unitId) {
+       if (!this.unitCooldowns.has(unitId)) {
+           this.unitCooldowns.set(unitId, { lastMove: 0, lastShoot: 0 });
+       }
+       return this.unitCooldowns.get(unitId);
+   };
+   
    TankGame.prototype.canMove = function(unit) {
-       return unit && unit.active && (Date.now() - this.lastMoveTime) >= this.moveCooldown;
+       if (!unit || !unit.active) return false;
+       var cd = this.getCooldowns(unit.id);
+       return (Date.now() - cd.lastMove) >= this.moveCooldown;
    };
    
    TankGame.prototype.canShoot = function(unit) {
-       return unit && unit.active && (Date.now() - this.lastShootTime) >= this.shootCooldown;
+       if (!unit || !unit.active) return false;
+       var cd = this.getCooldowns(unit.id);
+       return (Date.now() - cd.lastShoot) >= this.shootCooldown;
    };
    
-   TankGame.prototype.getRemainingMoveCooldown = function() {
-       return Math.max(0, this.moveCooldown - (Date.now() - this.lastMoveTime));
+   TankGame.prototype.getRemainingMoveCooldown = function(unitId) {
+       var cd = this.getCooldowns(unitId);
+       return Math.max(0, this.moveCooldown - (Date.now() - cd.lastMove));
    };
    
-   TankGame.prototype.getRemainingShootCooldown = function() {
-       return Math.max(0, this.shootCooldown - (Date.now() - this.lastShootTime));
+   TankGame.prototype.getRemainingShootCooldown = function(unitId) {
+       var cd = this.getCooldowns(unitId);
+       return Math.max(0, this.shootCooldown - (Date.now() - cd.lastShoot));
    };
    
-   TankGame.prototype.getRemainingCooldown = function() {
-       return Math.max(this.getRemainingMoveCooldown(), this.getRemainingShootCooldown());
+   TankGame.prototype.getRemainingCooldown = function(unitId) {
+       return Math.max(
+           this.getRemainingMoveCooldown(unitId),
+           this.getRemainingShootCooldown(unitId)
+       );
    };
    
    // ===== ГЕНЕРАЦИЯ КАРТЫ =====
@@ -83,6 +103,12 @@
            active: true, direction: 'right', kills: 0, isPlayer: false
        };
        this.enemies.push(enemy);
+       
+       // Инициализируем кулдауны для всех юнитов
+       var allUnits = this.getAllUnits();
+       for (var i = 0; i < allUnits.length; i++) {
+           this.getCooldowns(allUnits[i].id);
+       }
    };
    
    // ===== ПОЛУЧЕНИЕ ЮНИТОВ =====
@@ -121,7 +147,7 @@
        this._lastPositions.set(unitId, { q: q, r: r });
    };
    
-   // ===== ДВИЖЕНИЕ =====
+   // ===== ДВИЖЕНИЕ (с индивидуальным кулдауном) =====
    TankGame.prototype.moveToCell = function(unitId, targetQ, targetR) {
        var unit = this.getAllUnits().find(function(u) { return u.id === unitId && u.active; });
        if (!unit || !this.canMove(unit)) return false;
@@ -137,11 +163,15 @@
        unit.direction = direction;
        unit.q = targetQ;
        unit.r = targetR;
-       this.lastMoveTime = Date.now();
+       
+       // ✅ ОБНОВЛЯЕМ ИНДИВИДУАЛЬНЫЙ КУЛДАУН
+       var cd = this.getCooldowns(unitId);
+       cd.lastMove = Date.now();
+       
        return true;
    };
    
-   // ===== СТРЕЛЬБА (использует ShootLogic) =====
+   // ===== СТРЕЛЬБА (с индивидуальным кулдауном) =====
    TankGame.prototype.shootAtCell = function(attackerId, targetQ, targetR) {
        var attacker = this.getAllUnits().find(function(u) { return u.id === attackerId && u.active; });
        if (!attacker) {
@@ -149,8 +179,12 @@
        }
        
        if (!this.canShoot(attacker)) {
-           var remaining = this.getRemainingShootCooldown();
-           return { success: false, message: 'Перезарядка: ' + Math.ceil(remaining/1000) + 'с', cooldown: remaining };
+           var remaining = this.getRemainingShootCooldown(attackerId);
+           return { 
+               success: false, 
+               message: 'Перезарядка: ' + Math.ceil(remaining/1000) + 'с', 
+               cooldown: remaining 
+           };
        }
        
        // Используем ShootLogic для выполнения выстрела
@@ -158,7 +192,9 @@
        var result = this.shootLogic.executeShoot(attacker, targetQ, targetR, allUnits);
        
        if (result.success) {
-           this.lastShootTime = Date.now();
+           // ✅ ОБНОВЛЯЕМ ИНДИВИДУАЛЬНЫЙ КУЛДАУН
+           var cd = this.getCooldowns(attackerId);
+           cd.lastShoot = Date.now();
            
            // Если попали и убили - добавляем дым
            if (result.hit && result.killed) {
@@ -185,6 +221,7 @@
        var allUnits = this.getAllUnits();
        var shootCheck = this.shootLogic.canShootAt(enemy, player.q, player.r, allUnits);
        
+       // Стреляем с вероятностью 40%
        if (shootCheck.canShoot && Math.random() < 0.4 && this.canShoot(enemy)) {
            return this.shootAtCell(enemy.id, player.q, player.r);
        }
@@ -201,7 +238,14 @@
            var target = valid[Math.floor(Math.random() * valid.length)];
            var fromQ = enemy.q, fromR = enemy.r;
            if (this.moveToCell(enemy.id, target.q, target.r)) {
-               return { type: 'move', fromQ: fromQ, fromR: fromR, toQ: target.q, toR: target.r, unitId: enemy.id };
+               return { 
+                   type: 'move', 
+                   fromQ: fromQ, 
+                   fromR: fromR, 
+                   toQ: target.q, 
+                   toR: target.r, 
+                   unitId: enemy.id 
+               };
            }
        }
        return null;
@@ -220,18 +264,30 @@
            if (lp) lastPositions[u.id] = lp;
        }
        
+       // Собираем кулдауны для всех юнитов
+       var cooldowns = {};
+       for (var i = 0; i < allUnits.length; i++) {
+           var u = allUnits[i];
+           var cd = this.getCooldowns(u.id);
+           cooldowns[u.id] = {
+               lastMove: cd.lastMove,
+               lastShoot: cd.lastShoot,
+               moveRemaining: this.getRemainingMoveCooldown(u.id),
+               shootRemaining: this.getRemainingShootCooldown(u.id)
+           };
+       }
+       
        return {
            radius: this.radius,
            myTank: JSON.parse(JSON.stringify(player)),
            enemies: this.enemies.filter(function(e) { return e.active; }).map(function(e) { return JSON.parse(JSON.stringify(e)); }),
            cells: this.cells.slice(),
-           lastMoveTime: this.lastMoveTime,
            moveCooldown: this.moveCooldown,
-           lastShootTime: this.lastShootTime,
            shootCooldown: this.shootCooldown,
            gameOver: this.gameOver,
            winner: this.winner,
            lastPositions: lastPositions,
+           cooldowns: cooldowns,
            shootConfig: this.shootLogic.getConfig()
        };
    };
@@ -252,6 +308,42 @@
            return true;
        }
        return false;
+   };
+   
+   // ===== СБРОС ИГРЫ =====
+   TankGame.prototype.resetGame = function() {
+       this.gameOver = false;
+       this.winner = null;
+       this._lastPositions.clear();
+       this.unitCooldowns.clear();
+       
+       // Восстанавливаем игрока
+       if (this.players.length > 0) {
+           var player = this.players[0];
+           player.hp = player.maxHp;
+           player.active = true;
+           player.q = 1;
+           player.r = -8;
+           player.direction = 'right';
+           player.kills = 0;
+       }
+       
+       // Восстанавливаем врага
+       if (this.enemies.length > 0) {
+           var enemy = this.enemies[0];
+           enemy.hp = enemy.maxHp;
+           enemy.active = true;
+           enemy.q = -1;
+           enemy.r = 8;
+           enemy.direction = 'right';
+           enemy.kills = 0;
+       }
+       
+       // Инициализируем кулдауны
+       var allUnits = this.getAllUnits();
+       for (var i = 0; i < allUnits.length; i++) {
+           this.getCooldowns(allUnits[i].id);
+       }
    };
    
    // ===== ЭКСПОРТ =====

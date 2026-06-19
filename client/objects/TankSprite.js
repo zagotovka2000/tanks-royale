@@ -1,4 +1,4 @@
-// client/objects/TankSprite.js - ПОЛНАЯ ВЕРСИЯ С ЗВУКАМИ И АНИМАЦИЕЙ
+// client/objects/TankSprite.js - ИСПРАВЛЕННАЯ ВЕРСИЯ С УЛУЧШЕННЫМ ПОВОРОТОМ
 
 function TankSprite(scene, unit, hexGrid) {
    this.scene = scene;
@@ -31,12 +31,14 @@ function TankSprite(scene, unit, hexGrid) {
    this.sounds = {
        move: null,
        shoot: null,
-       hit: null
+       hit: null,
+       rotate: null
    };
    this.soundsLoaded = {
        move: false,
        shoot: false,
-       hit: false
+       hit: false,
+       rotate: false
    };
    
    // Для анимации отдачи
@@ -44,7 +46,22 @@ function TankSprite(scene, unit, hexGrid) {
    this.isRecoiling = false;
    this.recoilStartTime = 0;
    this.recoilDuration = 200;
-   this.maxRecoil = -8; // Откат назад в пикселях
+   this.maxRecoil = -8;
+   
+   // Для анимации поворота башни
+   this.isRotating = false;
+   this.rotationTween = null;
+   this.rotationCallback = null;
+   this.rotationStartTime = 0;
+   this.rotationDuration = 0;
+   this.rotationStartAngle = 0;
+   this.rotationTargetAngle = 0;
+   this.rotationDiff = 0;
+   this.rotationDirection = null;
+   
+   // ✅ ОЧЕРЕДЬ ПОВОРОТОВ
+   this.rotationQueue = [];
+   this.isProcessingRotation = false;
 }
 
 // ============================================
@@ -54,23 +71,25 @@ TankSprite.prototype.loadSounds = function() {
    var self = this;
    var basePath = '/assets/sounds/';
    
-   // Звук движения
    this.loadSound('move', basePath + 'move.mp3', function() {
        self.soundsLoaded.move = true;
    });
    
-   // Звук выстрела
    this.loadSound('shoot', basePath + 'shoot.mp3', function() {
        self.soundsLoaded.shoot = true;
    });
    
-   // Звук попадания
    this.loadSound('hit', basePath + 'hit_target.mp3', function() {
        self.soundsLoaded.hit = true;
+   });
+   
+   this.loadSound('rotate', basePath + 'miss.mp3', function() {
+       self.soundsLoaded.rotate = true;
    });
 };
 
 TankSprite.prototype.loadSound = function(name, path, callback) {
+   var self = this;
    try {
        var audio = new Audio();
        audio.volume = 0.5;
@@ -81,7 +100,6 @@ TankSprite.prototype.loadSound = function(name, path, callback) {
        
        audio.addEventListener('error', function(e) {
            console.warn('⚠️ Ошибка загрузки звука:', path, e);
-           // Создаем синтетический звук если файл не найден
            self.createSyntheticSound(name);
        });
        
@@ -95,7 +113,7 @@ TankSprite.prototype.loadSound = function(name, path, callback) {
 };
 
 // ============================================
-// СИНТЕТИЧЕСКИЕ ЗВУКИ (если файлы не найдены)
+// СИНТЕТИЧЕСКИЕ ЗВУКИ
 // ============================================
 TankSprite.prototype.createSyntheticSound = function(name) {
    try {
@@ -119,6 +137,11 @@ TankSprite.prototype.createSyntheticSound = function(name) {
            for (var i = 0; i < data.length; i++) {
                var t = i / sampleRate;
                data[i] = (Math.random() * 2 - 1) * Math.exp(-t * 20) * 0.4;
+           }
+       } else if (name === 'rotate') {
+           for (var i = 0; i < data.length; i++) {
+               var t = i / sampleRate;
+               data[i] = Math.sin(t * 800 + Math.sin(t * 300) * 0.5) * Math.exp(-t * 5) * 0.4;
            }
        }
        
@@ -156,7 +179,6 @@ TankSprite.prototype.createSyntheticSound = function(name) {
 TankSprite.prototype.playSound = function(name, volume) {
    var sound = this.sounds[name];
    if (!sound || !this.soundsLoaded[name]) {
-       // Пробуем загрузить
        this.loadSounds();
        return;
    }
@@ -179,10 +201,10 @@ TankSprite.prototype.playSound = function(name, volume) {
 };
 
 // ============================================
-// ВОСПРОИЗВЕДЕНИЕ ЗВУКА ДВИЖЕНИЯ (с учетом громкости)
+// ЗВУК ДВИЖЕНИЯ
 // ============================================
 TankSprite.prototype.playMoveSound = function() {
-   var volume = this.unit.isPlayer ? 0.5 : 0.25; // В 2 раза тише для врагов
+   var volume = this.unit.isPlayer ? 0.5 : 0.25;
    this.playSound('move', volume);
 };
 
@@ -205,11 +227,7 @@ TankSprite.prototype.playRecoil = function() {
    this.isRecoiling = true;
    this.recoilStartTime = Date.now();
    this.recoilOffset = 0;
-   
-   // Звук выстрела
    this.playSound('shoot', 0.5);
-   
-   console.log('💥 Отдача для танка:', this.unit.id);
 };
 
 TankSprite.prototype.updateRecoil = function() {
@@ -218,18 +236,14 @@ TankSprite.prototype.updateRecoil = function() {
    var elapsed = Date.now() - this.recoilStartTime;
    var progress = Math.min(1, elapsed / this.recoilDuration);
    
-   // Плавное движение назад и возврат
    if (progress < 0.5) {
-       // Откат назад
        var t = progress / 0.5;
        this.recoilOffset = this.maxRecoil * t;
    } else {
-       // Возврат
        var t = (progress - 0.5) / 0.5;
        this.recoilOffset = this.maxRecoil * (1 - t);
    }
    
-   // Применяем отдачу к башне (ствол откатывается назад)
    if (this.turretGroup) {
        this.turretGroup.x = this.recoilOffset;
    }
@@ -244,7 +258,161 @@ TankSprite.prototype.updateRecoil = function() {
 };
 
 // ============================================
-// АНИМАЦИЯ ДВИЖЕНИЯ (с очередью)
+// ✅ ПОВОРОТ БАШНИ С ОЧЕРЕДЬЮ
+// ============================================
+TankSprite.prototype.rotateTurret = function(direction, duration, onComplete) {
+    console.log('🔄 rotateTurret вызван для', this.unit.id, 'направление:', direction);
+    
+    if (!this.turretGroup) {
+        console.warn('⚠️ turretGroup не найден');
+        if (onComplete) onComplete();
+        return;
+    }
+    
+    var targetAngle = this.getAngle(direction);
+    var currentAngle = this.turretGroup.rotation;
+    
+    // Нормализуем углы
+    var diff = targetAngle - currentAngle;
+    while (diff > Math.PI) diff -= Math.PI * 2;
+    while (diff < -Math.PI) diff += Math.PI * 2;
+    
+    // Если угол уже совпадает
+    if (Math.abs(diff) < 0.01) {
+        console.log('✅ Угол уже совпадает');
+        this.currentDirection = direction;
+        if (this.unit) {
+            this.unit.direction = direction;
+        }
+        if (onComplete) onComplete();
+        return;
+    }
+    
+    // ✅ ДОБАВЛЯЕМ В ОЧЕРЕДЬ
+    this.rotationQueue.push({
+        direction: direction,
+        targetAngle: targetAngle,
+        currentAngle: currentAngle,
+        diff: diff,
+        duration: duration || 300,
+        onComplete: onComplete || null
+    });
+    
+    // Если очередь не обрабатывается - запускаем
+    if (!this.isProcessingRotation) {
+        this.processRotationQueue();
+    }
+};
+
+// ============================================
+// ✅ ОБРАБОТКА ОЧЕРЕДИ ПОВОРОТОВ
+// ============================================
+TankSprite.prototype.processRotationQueue = function() {
+    if (this.rotationQueue.length === 0) {
+        this.isProcessingRotation = false;
+        return;
+    }
+    
+    this.isProcessingRotation = true;
+    var rotationData = this.rotationQueue.shift();
+    
+    console.log('🔄 Обработка поворота:', rotationData.direction, 'осталось в очереди:', this.rotationQueue.length);
+    
+    // Если уже поворачиваемся - останавливаем
+    if (this.isRotating) {
+        this.stopTurretRotation();
+    }
+    
+    this.isRotating = true;
+    this.rotationStartTime = Date.now();
+    this.rotationDuration = rotationData.duration;
+    this.rotationStartAngle = this.turretGroup.rotation;
+    this.rotationTargetAngle = rotationData.targetAngle;
+    this.rotationDiff = rotationData.diff;
+    this.rotationDirection = rotationData.direction;
+    this.rotationCallback = rotationData.onComplete;
+    
+    // Звук поворота
+    this.playSound('rotate', 0.2);
+    
+    console.log('🔄 Запуск анимации поворота, от:', this.rotationStartAngle, 'до:', this.rotationTargetAngle);
+};
+
+// ============================================
+// ОСТАНОВКА ПОВОРОТА БАШНИ
+// ============================================
+TankSprite.prototype.stopTurretRotation = function() {
+    console.log('⏹️ Остановка поворота башни');
+    this.isRotating = false;
+    this.rotationCallback = null;
+};
+
+// ============================================
+// ОБНОВЛЕНИЕ ПОВОРОТА БАШНИ
+// ============================================
+TankSprite.prototype.updateTurretRotation = function() {
+    if (!this.isRotating || !this.turretGroup) return;
+    
+    var elapsed = Date.now() - this.rotationStartTime;
+    var progress = Math.min(1, elapsed / this.rotationDuration);
+    
+    // Плавное замедление
+    var ease = progress < 0.5 ? 
+        2 * progress * progress : 
+        1 - Math.pow(-2 * progress + 2, 2) / 2;
+    
+    var currentAngle = this.rotationStartAngle + this.rotationDiff * ease;
+    this.turretGroup.setRotation(currentAngle);
+    
+    if (progress >= 1) {
+        // Поворот завершен
+        this.turretGroup.setRotation(this.rotationTargetAngle);
+        this.isRotating = false;
+        this.currentDirection = this.rotationDirection;
+        
+        if (this.unit) {
+            this.unit.direction = this.rotationDirection;
+        }
+        
+        console.log('✅ Поворот башни завершен:', this.rotationDirection, 'угол:', this.rotationTargetAngle);
+        
+        var callback = this.rotationCallback;
+        this.rotationCallback = null;
+        
+        // ✅ ОБРАБАТЫВАЕМ СЛЕДУЮЩИЙ ПОВОРОТ В ОЧЕРЕДИ
+        var self = this;
+        setTimeout(function() {
+            if (callback) {
+                callback();
+            }
+            // Обрабатываем следующий поворот в очереди
+            self.processRotationQueue();
+        }, 50);
+    }
+};
+
+// ============================================
+// МГНОВЕННЫЙ ПОВОРОТ БАШНИ
+// ============================================
+TankSprite.prototype.setTurretDirection = function(direction) {
+    if (!this.turretGroup) return;
+    
+    // Очищаем очередь поворотов
+    this.rotationQueue = [];
+    this.isProcessingRotation = false;
+    this.stopTurretRotation();
+    
+    var angle = this.getAngle(direction);
+    this.turretGroup.setRotation(angle);
+    this.currentDirection = direction;
+    
+    if (this.unit) {
+        this.unit.direction = direction;
+    }
+};
+
+// ============================================
+// АНИМАЦИЯ ДВИЖЕНИЯ
 // ============================================
 TankSprite.prototype.queueMove = function(fromQ, fromR, toQ, toR, duration, onComplete) {
    this.moveQueue.push({
@@ -292,7 +460,7 @@ TankSprite.prototype._executeAnimation = function(fromQ, fromR, toQ, toR, durati
    var direction = HexUtils.getDirection(fromQ, fromR, toQ, toR);
    this.unit.direction = direction;
    this.currentDirection = direction;
-   this.rotateBarrelInstant(direction);
+   this.setTurretDirection(direction);
    
    this.isAnimating = true;
    this.animationProgress = 0;
@@ -302,10 +470,8 @@ TankSprite.prototype._executeAnimation = function(fromQ, fromR, toQ, toR, durati
    this.animStartTime = Date.now();
    this.onComplete = onComplete || null;
    
-   // Звук движения
    this.playMoveSound();
    
-   // Таймаут защиты
    if (this.animationTimeout) {
        clearTimeout(this.animationTimeout);
    }
@@ -327,11 +493,14 @@ TankSprite.prototype._executeAnimation = function(fromQ, fromR, toQ, toR, durati
 };
 
 // ============================================
-// ОБНОВЛЕНИЕ (вызывается каждый кадр)
+// ОБНОВЛЕНИЕ
 // ============================================
 TankSprite.prototype.update = function() {
    // Обновляем отдачу
    this.updateRecoil();
+   
+   // Обновляем поворот башни
+   this.updateTurretRotation();
    
    if (!this.isAnimating) return;
    
@@ -377,7 +546,6 @@ TankSprite.prototype.update = function() {
 TankSprite.prototype.create = function() {
    var pos = this.hexGrid.hexToPixel(this.unit.q, this.unit.r);
    
-   // Загружаем звуки
    this.loadSounds();
    
    var color = Phaser.Display.Color.HexStringToColor(this.unit.color || '#4caf50');
@@ -566,20 +734,11 @@ TankSprite.prototype.drawStar = function(graphics, cx, cy, spikes, outerRadius, 
 
 TankSprite.prototype.updateBarrel = function() {
    if (!this.turretGroup) return;
+   if (this.isRotating) return;
    var direction = this.unit.direction || 'right';
    var angle = this.getAngle(direction);
    this.turretGroup.setRotation(angle);
    this.currentDirection = direction;
-};
-
-TankSprite.prototype.rotateBarrelInstant = function(direction) {
-   if (!this.turretGroup) return;
-   var angle = this.getAngle(direction);
-   this.turretGroup.setRotation(angle);
-   this.currentDirection = direction;
-   if (this.unit) {
-       this.unit.direction = direction;
-   }
 };
 
 TankSprite.prototype.updatePosition = function(q, r, direction) {
@@ -631,6 +790,16 @@ TankSprite.prototype.destroy = function() {
    this.moveQueue = [];
    this.isAnimating = false;
    this.isRecoiling = false;
+   this.isRotating = false;
+   
+   // Очищаем очередь поворотов
+   this.rotationQueue = [];
+   this.isProcessingRotation = false;
+   
+   if (this.rotationTween) {
+       this.scene.tweens.remove(this.rotationTween);
+       this.rotationTween = null;
+   }
    
    if (this.animationTimeout) {
        clearTimeout(this.animationTimeout);

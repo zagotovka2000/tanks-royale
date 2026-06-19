@@ -1,4 +1,4 @@
-// client/objects/TankSprite.js - ИСПРАВЛЕНИЕ: ОЧЕРЕДЬ АНИМАЦИЙ И ОРИЕНТАЦИЯ СТВОЛА
+// client/objects/TankSprite.js - ПОЛНАЯ ВЕРСИЯ С ЗВУКАМИ И АНИМАЦИЕЙ
 
 function TankSprite(scene, unit, hexGrid) {
    this.scene = scene;
@@ -9,7 +9,7 @@ function TankSprite(scene, unit, hexGrid) {
    this.hpBar = null;
    this.hpBarBg = null;
    
-   // ✅ ОЧЕРЕДЬ ДВИЖЕНИЙ
+   // Очередь движений
    this.moveQueue = [];
    this.isAnimating = false;
    this.animationTimeout = null;
@@ -21,19 +21,232 @@ function TankSprite(scene, unit, hexGrid) {
    this.size = 30;
    this.color = null;
    this.lighterColor = null;
-   this.moveSound = null;
-   this.soundLoaded = false;
    this.onComplete = null;
    
    this.barrel = null;
    this.currentDirection = unit.direction || 'right';
    this.turretGroup = null;
+   
+   // Звуки
+   this.sounds = {
+       move: null,
+       shoot: null,
+       hit: null
+   };
+   this.soundsLoaded = {
+       move: false,
+       shoot: false,
+       hit: false
+   };
+   
+   // Для анимации отдачи
+   this.recoilOffset = 0;
+   this.isRecoiling = false;
+   this.recoilStartTime = 0;
+   this.recoilDuration = 200;
+   this.maxRecoil = -8; // Откат назад в пикселях
 }
 
-// ✅ НОВЫЙ МЕТОД - ДОБАВЛЕНИЕ В ОЧЕРЕДЬ
-TankSprite.prototype.queueMove = function(fromQ, fromR, toQ, toR, duration, onComplete) {
-   console.log('📋 Добавление в очередь:', this.unit.id, 'с', fromQ, fromR, 'на', toQ, toR);
+// ============================================
+// ЗАГРУЗКА ЗВУКОВ
+// ============================================
+TankSprite.prototype.loadSounds = function() {
+   var self = this;
+   var basePath = '/assets/sounds/';
    
+   // Звук движения
+   this.loadSound('move', basePath + 'move.mp3', function() {
+       self.soundsLoaded.move = true;
+   });
+   
+   // Звук выстрела
+   this.loadSound('shoot', basePath + 'shoot.mp3', function() {
+       self.soundsLoaded.shoot = true;
+   });
+   
+   // Звук попадания
+   this.loadSound('hit', basePath + 'hit_target.mp3', function() {
+       self.soundsLoaded.hit = true;
+   });
+};
+
+TankSprite.prototype.loadSound = function(name, path, callback) {
+   try {
+       var audio = new Audio();
+       audio.volume = 0.5;
+       
+       audio.addEventListener('canplaythrough', function() {
+           callback();
+       });
+       
+       audio.addEventListener('error', function(e) {
+           console.warn('⚠️ Ошибка загрузки звука:', path, e);
+           // Создаем синтетический звук если файл не найден
+           self.createSyntheticSound(name);
+       });
+       
+       audio.src = path;
+       audio.load();
+       this.sounds[name] = audio;
+   } catch (e) {
+       console.warn('⚠️ Ошибка создания звука:', name, e);
+       this.createSyntheticSound(name);
+   }
+};
+
+// ============================================
+// СИНТЕТИЧЕСКИЕ ЗВУКИ (если файлы не найдены)
+// ============================================
+TankSprite.prototype.createSyntheticSound = function(name) {
+   try {
+       var audioContext = new (window.AudioContext || window.webkitAudioContext)();
+       var sampleRate = audioContext.sampleRate;
+       var duration = 0.2;
+       var buffer = audioContext.createBuffer(1, sampleRate * duration, sampleRate);
+       var data = buffer.getChannelData(0);
+       
+       if (name === 'move') {
+           for (var i = 0; i < data.length; i++) {
+               var t = i / sampleRate;
+               data[i] = (Math.random() * 2 - 1) * Math.exp(-t * 15) * 0.3;
+           }
+       } else if (name === 'shoot') {
+           for (var i = 0; i < data.length; i++) {
+               var t = i / sampleRate;
+               data[i] = Math.sin(t * 2000) * Math.exp(-t * 8) * 0.5;
+           }
+       } else if (name === 'hit') {
+           for (var i = 0; i < data.length; i++) {
+               var t = i / sampleRate;
+               data[i] = (Math.random() * 2 - 1) * Math.exp(-t * 20) * 0.4;
+           }
+       }
+       
+       this.sounds[name] = {
+           play: function() {
+               try {
+                   var source = audioContext.createBufferSource();
+                   source.buffer = buffer;
+                   var gain = audioContext.createGain();
+                   gain.gain.value = 0.5;
+                   source.connect(gain);
+                   gain.connect(audioContext.destination);
+                   source.start();
+                   this._source = source;
+               } catch (e) {}
+           }.bind(this),
+           pause: function() {
+               if (this._source) {
+                   try { this._source.stop(); } catch (e) {}
+               }
+           }.bind(this),
+           volume: 0.5,
+           _source: null
+       };
+       this.soundsLoaded[name] = true;
+       console.log('✅ Синтетический звук создан:', name);
+   } catch (e) {
+       console.warn('⚠️ Не удалось создать звук:', name);
+   }
+};
+
+// ============================================
+// ВОСПРОИЗВЕДЕНИЕ ЗВУКОВ
+// ============================================
+TankSprite.prototype.playSound = function(name, volume) {
+   var sound = this.sounds[name];
+   if (!sound || !this.soundsLoaded[name]) {
+       // Пробуем загрузить
+       this.loadSounds();
+       return;
+   }
+   
+   try {
+       var vol = volume || 0.5;
+       if (sound.volume !== undefined) {
+           sound.volume = vol;
+       }
+       sound.currentTime = 0;
+       var promise = sound.play();
+       if (promise !== undefined) {
+           promise.catch(function(e) {
+               console.warn('⚠️ Ошибка воспроизведения звука:', name, e);
+           });
+       }
+   } catch (e) {
+       console.warn('⚠️ Ошибка воспроизведения:', name, e);
+   }
+};
+
+// ============================================
+// ВОСПРОИЗВЕДЕНИЕ ЗВУКА ДВИЖЕНИЯ (с учетом громкости)
+// ============================================
+TankSprite.prototype.playMoveSound = function() {
+   var volume = this.unit.isPlayer ? 0.5 : 0.25; // В 2 раза тише для врагов
+   this.playSound('move', volume);
+};
+
+TankSprite.prototype.stopMoveSound = function() {
+   var sound = this.sounds.move;
+   if (sound) {
+       try {
+           sound.pause();
+           sound.currentTime = 0;
+       } catch (e) {}
+   }
+};
+
+// ============================================
+// АНИМАЦИЯ ОТДАЧИ
+// ============================================
+TankSprite.prototype.playRecoil = function() {
+   if (this.isRecoiling) return;
+   
+   this.isRecoiling = true;
+   this.recoilStartTime = Date.now();
+   this.recoilOffset = 0;
+   
+   // Звук выстрела
+   this.playSound('shoot', 0.5);
+   
+   console.log('💥 Отдача для танка:', this.unit.id);
+};
+
+TankSprite.prototype.updateRecoil = function() {
+   if (!this.isRecoiling) return;
+   
+   var elapsed = Date.now() - this.recoilStartTime;
+   var progress = Math.min(1, elapsed / this.recoilDuration);
+   
+   // Плавное движение назад и возврат
+   if (progress < 0.5) {
+       // Откат назад
+       var t = progress / 0.5;
+       this.recoilOffset = this.maxRecoil * t;
+   } else {
+       // Возврат
+       var t = (progress - 0.5) / 0.5;
+       this.recoilOffset = this.maxRecoil * (1 - t);
+   }
+   
+   // Применяем отдачу к башне (ствол откатывается назад)
+   if (this.turretGroup) {
+       this.turretGroup.x = this.recoilOffset;
+   }
+   
+   if (progress >= 1) {
+       this.isRecoiling = false;
+       this.recoilOffset = 0;
+       if (this.turretGroup) {
+           this.turretGroup.x = 0;
+       }
+   }
+};
+
+// ============================================
+// АНИМАЦИЯ ДВИЖЕНИЯ (с очередью)
+// ============================================
+TankSprite.prototype.queueMove = function(fromQ, fromR, toQ, toR, duration, onComplete) {
    this.moveQueue.push({
        fromQ: fromQ,
        fromR: fromR,
@@ -43,30 +256,20 @@ TankSprite.prototype.queueMove = function(fromQ, fromR, toQ, toR, duration, onCo
        onComplete: onComplete || null
    });
    
-   // Если не анимируется - запускаем обработку очереди
    if (!this.isAnimating) {
        this.processQueue();
    }
 };
 
-// ✅ НОВЫЙ МЕТОД - ОБРАБОТКА ОЧЕРЕДИ
 TankSprite.prototype.processQueue = function() {
    if (this.moveQueue.length === 0 || this.isAnimating) {
        return;
    }
    
    var move = this.moveQueue.shift();
-   console.log('🎬 Запуск анимации из очереди:', this.unit.id, 'осталось:', this.moveQueue.length);
-   
-   // Запускаем анимацию с callback для продолжения очереди
    this._executeAnimation(
-       move.fromQ, 
-       move.fromR, 
-       move.toQ, 
-       move.toR, 
-       move.duration,
+       move.fromQ, move.fromR, move.toQ, move.toR, move.duration,
        function() {
-           // После завершения анимации - обрабатываем следующий элемент очереди
            this.processQueue();
            if (move.onComplete) {
                move.onComplete();
@@ -75,30 +278,18 @@ TankSprite.prototype.processQueue = function() {
    );
 };
 
-// ✅ ИСПРАВЛЕННЫЙ animateMove - ДОБАВЛЯЕТ В ОЧЕРЕДЬ
 TankSprite.prototype.animateMove = function(fromQ, fromR, toQ, toR, duration, onComplete) {
-   // Проверяем, не та же ли позиция
    if (fromQ === toQ && fromR === toR) {
-       console.log('⚠️ Нет смены позиции, пропускаем');
        if (onComplete) onComplete();
        return;
    }
-   
-   // ✅ ДОБАВЛЯЕМ В ОЧЕРЕДЬ
    this.queueMove(fromQ, fromR, toQ, toR, duration, onComplete);
 };
 
-// ✅ ПРИВАТНЫЙ МЕТОД - ВЫПОЛНЕНИЕ АНИМАЦИИ
 TankSprite.prototype._executeAnimation = function(fromQ, fromR, toQ, toR, duration, onComplete) {
-   if (this.isAnimating) {
-       console.warn('⚠️ Анимация уже идет, пропускаем');
-       return;
-   }
+   if (this.isAnimating) return;
    
    var direction = HexUtils.getDirection(fromQ, fromR, toQ, toR);
-   console.log('🎯 Анимация:', this.unit.id, direction, 'с', fromQ, fromR, 'на', toQ, toR);
-   
-   // Поворачиваем ствол мгновенно
    this.unit.direction = direction;
    this.currentDirection = direction;
    this.rotateBarrelInstant(direction);
@@ -111,7 +302,10 @@ TankSprite.prototype._executeAnimation = function(fromQ, fromR, toQ, toR, durati
    this.animStartTime = Date.now();
    this.onComplete = onComplete || null;
    
-   // ✅ УСТАНАВЛИВАЕМ ТАЙМАУТ (защита от зависания)
+   // Звук движения
+   this.playMoveSound();
+   
+   // Таймаут защиты
    if (this.animationTimeout) {
        clearTimeout(this.animationTimeout);
    }
@@ -129,17 +323,16 @@ TankSprite.prototype._executeAnimation = function(fromQ, fromR, toQ, toR, durati
        }
    }.bind(this), duration + 1000);
    
-   // ✅ УСТАНАВЛИВАЕМ НАЧАЛЬНУЮ ПОЗИЦИЮ
    this.container.setPosition(this.fromPos.x, this.fromPos.y);
-   
-   // ✅ ЗАПУСКАЕМ ЗВУК (С ПРОВЕРКОЙ)
-   this.playMoveSound();
-   
-   console.log('🎬 Анимация запущена, длительность:', this.animDuration, 'мс');
 };
 
-// ✅ ИСПРАВЛЕННЫЙ update
+// ============================================
+// ОБНОВЛЕНИЕ (вызывается каждый кадр)
+// ============================================
 TankSprite.prototype.update = function() {
+   // Обновляем отдачу
+   this.updateRecoil();
+   
    if (!this.isAnimating) return;
    
    var elapsed = Date.now() - this.animStartTime;
@@ -156,11 +349,6 @@ TankSprite.prototype.update = function() {
    
    this.container.setPosition(x, y - heightOffset + bounce * 0.3);
    
-   // ✅ ДОБАВЛЯЕМ ЛОГИРОВАНИЕ ДЛЯ ОТЛАДКИ
-   if (this.animationProgress < 0.1) {
-       console.log('🎬 Анимация в процессе:', this.unit.id, Math.round(this.animationProgress * 100) + '%');
-   }
-   
    if (this.animationProgress >= 1) {
        this.isAnimating = false;
        this.container.setPosition(this.toPos.x, this.toPos.y);
@@ -175,8 +363,6 @@ TankSprite.prototype.update = function() {
            this.updateBarrel();
        }
        
-       console.log('✅ Анимация завершена для:', this.unit.id);
-       
        if (this.onComplete) {
            var callback = this.onComplete;
            this.onComplete = null;
@@ -185,223 +371,14 @@ TankSprite.prototype.update = function() {
    }
 };
 
-// ✅ ИСПРАВЛЕННЫЙ destroy - ОЧИЩАЕТ ВСЕ
-TankSprite.prototype.destroy = function() {
-   // Очищаем очередь
-   this.moveQueue = [];
-   this.isAnimating = false;
-   
-   // Очищаем таймаут
-   if (this.animationTimeout) {
-       clearTimeout(this.animationTimeout);
-       this.animationTimeout = null;
-   }
-   
-   this.stopMoveSound();
-   if (this.moveSound) {
-       this.moveSound = null;
-   }
-   if (this.container) {
-       this.container.destroy();
-       this.container = null;
-   }
-   this.hpText = null;
-   this.hpBar = null;
-   this.hpBarBg = null;
-   this.turretGroup = null;
-   this.barrel = null;
-};
-
 // ============================================
-// ОСТАЛЬНЫЕ МЕТОДЫ
+// СОЗДАНИЕ ТАНКА
 // ============================================
-
-// ✅ ИСПРАВЛЕННЫЙ loadMoveSound - СОЗДАЕТ ЗВУК С ПРАВИЛЬНЫМ ПУТЕМ
-TankSprite.prototype.loadMoveSound = function() {
-   try {
-       // ✅ ПРОВЕРЯЕМ НЕСКОЛЬКО ПУТЕЙ ДЛЯ ЗВУКА
-       var soundPaths = [
-           '/sounds/move.mp3',
-           '/public/sounds/move.mp3',
-           '/client/sounds/move.mp3'
-       ];
-       
-       // Пробуем первый существующий путь
-       var self = this;
-       var testPath = soundPaths[0];
-       
-       // Создаем аудио элемент
-       this.moveSound = new Audio();
-       this.moveSound.volume = 0.3;
-       this.moveSound.loop = true;
-       
-       // Устанавливаем обработчики загрузки
-       this.moveSound.addEventListener('canplaythrough', function() {
-           self.soundLoaded = true;
-           console.log('✅ Звук загружен:', testPath);
-       });
-       
-       this.moveSound.addEventListener('error', function(e) {
-           console.warn('⚠️ Ошибка загрузки звука:', testPath, e);
-           // Пробуем следующий путь
-           var currentIndex = soundPaths.indexOf(testPath);
-           if (currentIndex < soundPaths.length - 1) {
-               testPath = soundPaths[currentIndex + 1];
-               self.moveSound.src = testPath;
-               self.moveSound.load();
-           } else {
-               self.soundLoaded = false;
-               console.warn('⚠️ Звук не загружен, пробуем создать синтетический');
-               self.createSyntheticSound();
-           }
-       });
-       
-       this.moveSound.src = testPath;
-       this.moveSound.load();
-       
-       console.log('🔊 Загрузка звука:', testPath);
-   } catch (e) {
-       console.warn('⚠️ Ошибка создания звука:', e);
-       this.soundLoaded = false;
-       this.createSyntheticSound();
-   }
-};
-
-// ✅ НОВЫЙ МЕТОД - СОЗДАЕТ СИНТЕТИЧЕСКИЙ ЗВУК (ЕСЛИ ФАЙЛ НЕ НАЙДЕН)
-TankSprite.prototype.createSyntheticSound = function() {
-   try {
-       console.log('🔊 Создание синтетического звука');
-       
-       // Создаем звук через Web Audio API
-       var audioContext = new (window.AudioContext || window.webkitAudioContext)();
-       
-       // Создаем буфер для звука
-       var sampleRate = audioContext.sampleRate;
-       var duration = 0.3; // 300ms
-       var buffer = audioContext.createBuffer(1, sampleRate * duration, sampleRate);
-       var data = buffer.getChannelData(0);
-       
-       // Генерируем шум с затуханием (имитация движения)
-       for (var i = 0; i < data.length; i++) {
-           var t = i / sampleRate;
-           var envelope = Math.exp(-t * 10); // Быстрое затухание
-           data[i] = (Math.random() * 2 - 1) * envelope * 0.3;
-       }
-       
-       // Создаем источник
-       var source = audioContext.createBufferSource();
-       source.buffer = buffer;
-       
-       // Создаем узел громкости
-       var gainNode = audioContext.createGain();
-       gainNode.gain.value = 0.3;
-       
-       source.connect(gainNode);
-       gainNode.connect(audioContext.destination);
-       
-       // Сохраняем как звук
-       this.moveSound = {
-           play: function() {
-               try {
-                   // Создаем новый источник для каждого воспроизведения
-                   var newSource = audioContext.createBufferSource();
-                   newSource.buffer = buffer;
-                   var newGain = audioContext.createGain();
-                   newGain.gain.value = 0.3;
-                   newSource.connect(newGain);
-                   newGain.connect(audioContext.destination);
-                   newSource.start();
-                   this._source = newSource;
-                   this._gain = newGain;
-               } catch (e) {
-                   console.warn('⚠️ Ошибка воспроизведения синтетического звука:', e);
-               }
-           }.bind(this),
-           pause: function() {
-               if (this._source) {
-                   try {
-                       this._source.stop();
-                   } catch (e) {}
-                   this._source = null;
-               }
-           }.bind(this),
-           loop: true,
-           volume: 0.3,
-           readyState: 4,
-           _source: null,
-           _gain: null
-       };
-       
-       this.soundLoaded = true;
-       console.log('✅ Синтетический звук создан');
-   } catch (e) {
-       console.warn('⚠️ Не удалось создать синтетический звук:', e);
-       this.soundLoaded = false;
-   }
-};
-
-// ✅ ИСПРАВЛЕННЫЙ playMoveSound - ГАРАНТИРУЕТ ВОСПРОИЗВЕДЕНИЕ
-TankSprite.prototype.playMoveSound = function() {
-   console.log('🔊 Попытка воспроизвести звук для:', this.unit.id);
-   
-   // Если звук не загружен - загружаем
-   if (!this.soundLoaded || !this.moveSound) {
-       this.loadMoveSound();
-       // Даем время на загрузку
-       setTimeout(function() {
-           if (this.moveSound && this.soundLoaded) {
-               this.playMoveSound();
-           }
-       }.bind(this), 100);
-       return;
-   }
-   
-   try {
-       // ✅ ПРОВЕРЯЕМ, ЧТО ЗВУК ЗАГРУЖЕН
-       if (this.moveSound.readyState >= 2) { // HAVE_CURRENT_DATA или больше
-           this.moveSound.currentTime = 0;
-           this.moveSound.loop = true;
-           this.moveSound.volume = 0.3;
-           var playPromise = this.moveSound.play();
-           if (playPromise !== undefined) {
-               playPromise.catch(function(error) {
-                   console.warn('⚠️ Ошибка воспроизведения звука:', error);
-                   // Пробуем перезагрузить звук
-                   this.loadMoveSound();
-               }.bind(this));
-           }
-       } else {
-           // Звук еще не загружен - пробуем позже
-           console.log('⏳ Звук еще не загружен, пробуем позже');
-           setTimeout(function() {
-               if (this.moveSound && !this.isAnimating) {
-                   // Если анимация уже завершилась - не нужно
-               } else {
-                   this.playMoveSound();
-               }
-           }.bind(this), 200);
-       }
-   } catch (e) {
-       console.warn('⚠️ Ошибка при воспроизведении звука:', e);
-       // Создаем звук заново
-       this.loadMoveSound();
-   }
-};
-
-TankSprite.prototype.stopMoveSound = function() {
-   if (this.moveSound) {
-       try {
-           this.moveSound.pause();
-           this.moveSound.currentTime = 0;
-           this.moveSound.loop = false;
-       } catch (e) {}
-   }
-};
-
 TankSprite.prototype.create = function() {
    var pos = this.hexGrid.hexToPixel(this.unit.q, this.unit.r);
    
-   this.loadMoveSound();
+   // Загружаем звуки
+   this.loadSounds();
    
    var color = Phaser.Display.Color.HexStringToColor(this.unit.color || '#4caf50');
    this.color = color;
@@ -420,39 +397,30 @@ TankSprite.prototype.create = function() {
    
    var s = this.size;
    
-   // ============================================
-   // 1. ТЕНЬ ПОД ТАНКОМ
-   // ============================================
+   // Тень
    var shadow = this.scene.make.graphics({});
    shadow.fillStyle(0x000000, 0.35);
    shadow.fillEllipse(0, s * 0.6, s * 1.6, s * 0.5);
    this.container.add(shadow);
    
-   // ============================================
-   // 2. КОРПУС ТАНКА (НЕ ПОВОРАЧИВАЕТСЯ)
-   // ============================================
+   // Корпус
    var body = this.scene.make.graphics({});
    body.fillStyle(color.color, 1);
    body.fillRoundedRect(-s * 0.9, -s * 0.5, s * 1.8, s * 1.0, 6);
-   
    var lighterColor = this.lightenColor(color.color, 30);
    body.fillStyle(lighterColor, 0.3);
    body.fillRoundedRect(-s * 0.7, -s * 0.4, s * 1.4, s * 0.5, 4);
-   
    body.fillStyle(0x000000, 0.1);
    body.fillRoundedRect(-s * 0.8, s * 0.2, s * 1.6, s * 0.3, 3);
    this.container.add(body);
    
-   // ============================================
-   // 3. ГУСЕНИЦЫ
-   // ============================================
+   // Гусеницы
    var track = this.scene.make.graphics({});
    track.fillStyle(0x2a2a2a, 1);
    track.fillRoundedRect(-s * 1.0, -s * 0.65, s * 0.3, s * 0.35, 3);
    track.fillRoundedRect(-s * 1.0, s * 0.3, s * 0.3, s * 0.35, 3);
    track.fillRoundedRect(s * 0.7, -s * 0.65, s * 0.3, s * 0.35, 3);
    track.fillRoundedRect(s * 0.7, s * 0.3, s * 0.3, s * 0.35, 3);
-   
    track.fillStyle(0x444444, 1);
    for (var i = -2; i <= 2; i++) {
        track.fillRect(-s * 0.95 + i * s * 0.12, -s * 0.55, s * 0.08, s * 0.15);
@@ -462,9 +430,7 @@ TankSprite.prototype.create = function() {
    }
    this.container.add(track);
    
-   // ============================================
-   // 4. КОЛЕСА
-   // ============================================
+   // Колеса
    var wheel = this.scene.make.graphics({});
    wheel.fillStyle(0x1a1a1a, 1);
    var wheelPositions = [
@@ -483,9 +449,7 @@ TankSprite.prototype.create = function() {
    }
    this.container.add(wheel);
    
-   // ============================================
-   // 5. БАШНЯ + СТВОЛ (В КОНТЕЙНЕРЕ ДЛЯ ПОВОРОТА)
-   // ============================================
+   // Башня + ствол
    this.turretGroup = this.scene.add.container(0, -s * 0.05);
    this.container.add(this.turretGroup);
    
@@ -500,37 +464,22 @@ TankSprite.prototype.create = function() {
    turret.fillCircle(s * 0.15, s * 0.15, s * 0.35);
    this.turretGroup.add(turret);
    
-   // ============================================
-   // 6. СТВОЛ - ПРАВИЛЬНАЯ ОРИЕНТАЦИЯ (ВПРАВО)
-   // ============================================
+   // Ствол
    var barrel = this.scene.make.graphics({});
    var barrelLength = s * 1.2;
    var barrelWidth = s * 0.1;
-   
-   // ✅ СТВОЛ РИСУЕМ ГОРИЗОНТАЛЬНО (ВПРАВО)
-   // Основной ствол - теперь горизонтальный
    barrel.fillStyle(0x444444, 1);
    barrel.fillRoundedRect(0, -barrelWidth/2, barrelLength, barrelWidth, 3);
-   
-   // Наконечник ствола
    barrel.fillStyle(0x333333, 1);
    barrel.fillRoundedRect(barrelLength - s * 0.2, -barrelWidth/2 - 0.02 * s, s * 0.2, barrelWidth + 0.04 * s, 2);
-   
-   // Дуло
    barrel.fillStyle(0x222222, 1);
    barrel.fillRoundedRect(barrelLength - s * 0.08, -barrelWidth/2 - 0.01 * s, s * 0.08, barrelWidth + 0.02 * s, 2);
-   
-   // Блик на стволе
    barrel.fillStyle(0x888888, 0.2);
    barrel.fillRoundedRect(s * 0.1, -barrelWidth/4, s * 0.6, barrelWidth/2, 2);
-   
-   // ✅ СТВОЛ НАЧИНАЕТСЯ ОТ ЦЕНТРА БАШНИ И ТОРЧИТ ВПРАВО
    this.barrel = barrel;
    this.turretGroup.add(barrel);
    
-   // ============================================
-   // 7. ЛЮК
-   // ============================================
+   // Люк
    var hatch = this.scene.make.graphics({});
    hatch.fillStyle(0x555555, 1);
    hatch.fillCircle(s * 0.2, -s * 0.15, s * 0.12);
@@ -538,17 +487,13 @@ TankSprite.prototype.create = function() {
    hatch.fillCircle(s * 0.18, -s * 0.17, s * 0.05);
    this.turretGroup.add(hatch);
    
-   // ============================================
-   // 8. БРОНЯ
-   // ============================================
+   // Броня
    var armor = this.scene.make.graphics({});
    armor.lineStyle(2, color.color, 0.3);
    armor.strokeRoundedRect(-s * 0.6, -s * 0.3, s * 1.2, s * 0.6, 4);
    this.container.add(armor);
    
-   // ============================================
-   // 9. ЗВЕЗДА (ДЛЯ ИГРОКА)
-   // ============================================
+   // Звезда для игрока
    if (this.unit.isPlayer) {
        var star = this.scene.make.graphics({});
        star.fillStyle(0xffd700, 0.6);
@@ -556,24 +501,19 @@ TankSprite.prototype.create = function() {
        this.container.add(star);
    }
    
-   // ============================================
-   // 10. СВЕЧЕНИЕ
-   // ============================================
+   // Свечение
    if (this.unit.isPlayer) {
        var glow = this.scene.make.graphics({});
        glow.fillStyle(0x44ff44, 0.06);
        glow.fillCircle(0, 0, s * 2.2);
        this.container.add(glow);
-       
        var ring = this.scene.make.graphics({});
        ring.lineStyle(2, 0x44ff44, 0.3);
        ring.strokeCircle(0, 0, s * 1.6);
        this.container.add(ring);
    }
    
-   // ============================================
-   // 11. HP БАР
-   // ============================================
+   // HP бар
    this.hpBarBg = this.scene.make.graphics({});
    this.hpBarBg.fillStyle(0x222222, 0.9);
    this.hpBarBg.fillRoundedRect(-s * 0.9, -s * 1.4, s * 1.8, s * 0.22, 4);
@@ -588,13 +528,7 @@ TankSprite.prototype.create = function() {
    var hpColor = hpPercent > 0.5 ? 0x44ff44 : (hpPercent > 0.25 ? 0xffaa00 : 0xff4444);
    this.hpBar = this.scene.make.graphics({});
    this.hpBar.fillStyle(hpColor, 1);
-   this.hpBar.fillRoundedRect(
-       -s * 0.88,
-       -s * 1.38,
-       s * 1.76 * hpPercent,
-       s * 0.18,
-       3
-   );
+   this.hpBar.fillRoundedRect(-s * 0.88, -s * 1.38, s * 1.76 * hpPercent, s * 0.18, 3);
    this.container.add(this.hpBar);
    
    this.hpText = this.scene.add.text(0, -s * 1.3, Math.ceil(this.unit.hp) + '/' + this.unit.maxHp, {
@@ -606,15 +540,13 @@ TankSprite.prototype.create = function() {
    }).setOrigin(0.5);
    this.container.add(this.hpText);
    
-   // ✅ УСТАНАВЛИВАЕМ НАЧАЛЬНОЕ НАПРАВЛЕНИЕ
    this.updateBarrel();
    
-   console.log('✅ Танк создан:', this.unit.id, 'направление:', this.unit.direction);
    return this.container;
 };
 
 // ============================================
-// ВСПОМОГАТЕЛЬНЫЙ МЕТОД ДЛЯ ЗВЕЗДЫ
+// ВСПОМОГАТЕЛЬНЫЕ МЕТОДЫ
 // ============================================
 TankSprite.prototype.drawStar = function(graphics, cx, cy, spikes, outerRadius, innerRadius) {
    var rot = -Math.PI / 2;
@@ -632,79 +564,43 @@ TankSprite.prototype.drawStar = function(graphics, cx, cy, spikes, outerRadius, 
    graphics.fillPath();
 };
 
-// ============================================
-// ✅ ИСПРАВЛЕННЫЙ updateBarrel - ПРАВИЛЬНЫЕ УГЛЫ
-// ============================================
 TankSprite.prototype.updateBarrel = function() {
-   if (!this.turretGroup) {
-       console.warn('⚠️ turretGroup не найден');
-       return;
-   }
-   
-   // ✅ ИСПОЛЬЗУЕМ ТЕКУЩЕЕ НАПРАВЛЕНИЕ ИЗ UNIT
+   if (!this.turretGroup) return;
    var direction = this.unit.direction || 'right';
    var angle = this.getAngle(direction);
-   
-   // ✅ ПОВОРАЧИВАЕМ ВСЮ БАШНЮ
    this.turretGroup.setRotation(angle);
-   
-   // ✅ СОХРАНЯЕМ ТЕКУЩЕЕ НАПРАВЛЕНИЕ
    this.currentDirection = direction;
-   
-   console.log('🔄 updateBarrel() - направление:', direction, 'угол:', angle);
 };
 
-// ============================================
-// ✅ МГНОВЕННЫЙ ПОВОРОТ СТВОЛА (БЕЗ АНИМАЦИИ)
-// ============================================
 TankSprite.prototype.rotateBarrelInstant = function(direction) {
    if (!this.turretGroup) return;
-   
    var angle = this.getAngle(direction);
    this.turretGroup.setRotation(angle);
    this.currentDirection = direction;
    if (this.unit) {
        this.unit.direction = direction;
    }
-   console.log('🔄 Мгновенный поворот ствола:', direction, 'угол:', angle);
 };
 
-// ============================================
-// ОБНОВЛЕНИЕ ПОЗИЦИИ И НАПРАВЛЕНИЯ
-// ============================================
 TankSprite.prototype.updatePosition = function(q, r, direction) {
    var pos = this.hexGrid.hexToPixel(q, r);
    this.container.setPosition(pos.x, pos.y);
-   
    if (direction) {
        this.unit.direction = direction;
        this.currentDirection = direction;
    }
-   
    this.updateBarrel();
    this.updateHPBar();
 };
 
-// ============================================
-// ОБНОВЛЕНИЕ HP БАРА
-// ============================================
 TankSprite.prototype.updateHPBar = function() {
    if (!this.hpBar || !this.hpBarBg) return;
-   
    var s = this.size || 30;
    var hpPercent = Math.max(0, this.unit.hp / this.unit.maxHp);
    var hpColor = hpPercent > 0.5 ? 0x44ff44 : (hpPercent > 0.25 ? 0xffaa00 : 0xff4444);
-   
    this.hpBar.clear();
    this.hpBar.fillStyle(hpColor, 1);
-   this.hpBar.fillRoundedRect(
-       -s * 0.88,
-       -s * 1.38,
-       s * 1.76 * hpPercent,
-       s * 0.18,
-       3
-   );
-   
+   this.hpBar.fillRoundedRect(-s * 0.88, -s * 1.38, s * 1.76 * hpPercent, s * 0.18, 3);
    if (this.hpText) {
        this.hpText.setText(Math.ceil(this.unit.hp) + '/' + this.unit.maxHp);
    }
@@ -719,19 +615,41 @@ TankSprite.prototype.lightenColor = function(color, amount) {
           Math.min(255, b + amount);
 };
 
-// ✅ ПРАВИЛЬНЫЕ УГЛЫ ДЛЯ 6 НАПРАВЛЕНИЙ ГЕКСАГОНАЛЬНОЙ СЕТКИ
 TankSprite.prototype.getAngle = function(direction) {
-   // Ствол изначально смотрит вправо (0°)
-   // При повороте башни на угол, ствол поворачивается соответственно
    var map = {
-       'right': 0,                        // 0° - вправо
-       'up-right': -Math.PI / 3,          // -60° - вверх-вправо
-       'up-left': -Math.PI * 2 / 3,       // -120° - вверх-влево
-       'left': Math.PI,                   // 180° - влево
-       'down-left': Math.PI * 2 / 3,      // 120° - вниз-влево
-       'down-right': Math.PI / 3          // 60° - вниз-вправо
+       'right': 0,
+       'up-right': -Math.PI / 3,
+       'up-left': -Math.PI * 2 / 3,
+       'left': Math.PI,
+       'down-left': Math.PI * 2 / 3,
+       'down-right': Math.PI / 3
    };
    return map[direction] || 0;
+};
+
+TankSprite.prototype.destroy = function() {
+   this.moveQueue = [];
+   this.isAnimating = false;
+   this.isRecoiling = false;
+   
+   if (this.animationTimeout) {
+       clearTimeout(this.animationTimeout);
+       this.animationTimeout = null;
+   }
+   
+   this.stopMoveSound();
+   this.sounds = {};
+   this.soundsLoaded = {};
+   
+   if (this.container) {
+       this.container.destroy();
+       this.container = null;
+   }
+   this.hpText = null;
+   this.hpBar = null;
+   this.hpBarBg = null;
+   this.turretGroup = null;
+   this.barrel = null;
 };
 
 // Экспорт

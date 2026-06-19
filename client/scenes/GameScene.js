@@ -1,5 +1,5 @@
-// client/scenes/GameScene.js - ИСПРАВЛЕННАЯ ВЕРСИЯ
-// (добавлена загрузка ShootLogic + обновленная обработка движений)
+// client/scenes/GameScene.js - ОБНОВЛЕННАЯ ВЕРСИЯ
+// (звук попадания, медленный снаряд, анимация отдачи)
 
 function GameScene() {
    Phaser.Scene.call(this, { key: 'GameScene' });
@@ -27,10 +27,10 @@ function GameScene() {
    this.zoomContainer = null;
    
    // ✅ НОВЫЕ СВОЙСТВА ДЛЯ ОБРАБОТКИ ДВИЖЕНИЙ
-   this.processedMoves = new Set(); // Уже обработанные движения
+   this.processedMoves = new Set();
    this.moveProcessingLock = false;
    this.lastProcessedState = null;
-   this.moveQueue = []; // Очередь движений
+   this.moveQueue = [];
    this.isProcessingQueue = false;
 }
 
@@ -39,7 +39,6 @@ GameScene.prototype.constructor = GameScene;
 
 GameScene.prototype.init = function(data) {
    console.log('🔧 GameScene.init()', data || '');
-   // Сохраняем данные, переданные из BootScene
    if (data) {
        this.isLocalGame = data.isLocalGame !== undefined ? data.isLocalGame : true;
        this.socket = data.socket || null;
@@ -52,12 +51,10 @@ GameScene.prototype.create = function() {
    // ✅ УБЕЖДАЕМСЯ, ЧТО SHOOTLOGIC ЗАГРУЖЕН
    if (typeof ShootLogic === 'undefined') {
        console.warn('⚠️ ShootLogic не загружен, загружаем...');
-       // Динамическая загрузка для браузера
        var script = document.createElement('script');
        script.src = '/client/game/ShootLogic.js';
        document.head.appendChild(script);
        
-       // Проверяем загрузку через небольшую задержку
        var checkLoaded = function(attempts) {
            if (typeof ShootLogic !== 'undefined') {
                console.log('✅ ShootLogic успешно загружен');
@@ -73,60 +70,40 @@ GameScene.prototype.create = function() {
        console.log('✅ ShootLogic уже загружен');
    }
    
-   // Устанавливаем фон
    this.cameras.main.setBackgroundColor('#1a2a3a');
    
-   // Размеры камеры
    var width = this.cameras.main.width;
    var height = this.cameras.main.height;
    console.log('📐 Размеры камеры:', width, 'x', height);
    
-   // Создаем гексагональную сетку
-   console.log('📐 Создание HexGrid...');
    this.hexGrid = new HexGrid(this, 45);
    this.hexGrid.init();
    console.log('✅ HexGrid создан');
    
-   // Создаем игровой контроллер
-   console.log('📐 Создание GameController...');
    this.gameController = new GameController(this, null);
    this.gameController.init();
    console.log('✅ GameController создан');
    
-   // Создаем контроллер ввода
-   console.log('📐 Создание InputController...');
    this.inputController = new InputController(this, this.gameController);
    this.inputController.init();
    this.inputController.scene = this;
    console.log('✅ InputController создан');
    
-   // Устанавливаем флаг готовности
    this.isReady = true;
    
-   // Загружаем начальное состояние
-   console.log('📐 Загрузка начального состояния...');
    this.gameController.updateGameState();
    console.log('✅ Начальное состояние загружено');
    
-   // Отладочная информация
    this.debugText = this.add.text(
-       10,
-       10,
+       10, 10,
        'Гексов: 0 | Танков: 0 | Зум: 1.0x',
-       { 
-           fontSize: '14px', 
-           color: '#ffffff', 
-           backgroundColor: '#000000', 
-           padding: { x: 8, y: 4 } 
-       }
+       { fontSize: '14px', color: '#ffffff', backgroundColor: '#000000', padding: { x: 8, y: 4 } }
    );
    this.debugText.setDepth(100);
    this.debugText.setScrollFactor(0);
    
-   // Настройка камеры
    this.setupCameraControls();
    
-   // Таймер обновления
    this.updateTimer = this.time.addEvent({
        delay: 100,
        callback: this.onUpdate,
@@ -134,7 +111,6 @@ GameScene.prototype.create = function() {
        loop: true
    });
    
-   // Таймер для бота
    this.botTimer = this.time.addEvent({
        delay: 2000,
        callback: this.onBotAction,
@@ -142,13 +118,11 @@ GameScene.prototype.create = function() {
        loop: true
    });
    
-   // Обработка ресайза
    var self = this;
    window.addEventListener('resize', function() {
        self.onResize();
    });
    
-   // Принудительная перерисовка через 500мс
    setTimeout(function() {
        console.log('🔄 Принудительная перерисовка...');
        if (self.gameState) {
@@ -165,7 +139,6 @@ GameScene.prototype.create = function() {
 GameScene.prototype.setupCameraControls = function() {
    var self = this;
    
-   // Колесико мыши - зум
    this.input.on('wheel', function(pointer, gameObjects, deltaX, deltaY, deltaZ) {
        var zoomFactor = 0.1;
        if (deltaY > 0) {
@@ -179,7 +152,6 @@ GameScene.prototype.setupCameraControls = function() {
        console.log('🔍 Зум:', self.cameraZoom.toFixed(2) + 'x');
    });
    
-   // Зажатая левая кнопка - панорамирование
    this.input.on('pointerdown', function(pointer) {
        if (pointer.leftButtonDown()) {
            self.isDragging = true;
@@ -195,7 +167,6 @@ GameScene.prototype.setupCameraControls = function() {
        if (self.isDragging && pointer.leftButtonDown()) {
            var dx = pointer.x - self.dragStartX;
            var dy = pointer.y - self.dragStartY;
-           
            self.cameras.main.scrollX = self.cameraStartX - dx / self.cameraZoom;
            self.cameras.main.scrollY = self.cameraStartY - dy / self.cameraZoom;
        }
@@ -208,7 +179,6 @@ GameScene.prototype.setupCameraControls = function() {
        }
    });
    
-   // Кнопки зума на экране
    this.addZoomButtons();
 };
 
@@ -221,28 +191,13 @@ GameScene.prototype.addZoomButtons = function() {
    var zoomContainer = document.createElement('div');
    zoomContainer.id = 'zoom-controls';
    zoomContainer.style.cssText = 
-       'position: fixed; ' +
-       'bottom: 100px; ' +
-       'right: 20px; ' +
-       'display: flex; ' +
-       'flex-direction: column; ' +
-       'gap: 8px; ' +
-       'z-index: 1000;';
+       'position: fixed; bottom: 100px; right: 20px; display: flex; flex-direction: column; gap: 8px; z-index: 1000;';
    document.body.appendChild(zoomContainer);
    
    var zoomInBtn = document.createElement('button');
    zoomInBtn.textContent = '+';
    zoomInBtn.style.cssText = 
-       'width: 50px; ' +
-       'height: 50px; ' +
-       'border-radius: 25px; ' +
-       'border: none; ' +
-       'background: rgba(0,0,0,0.7); ' +
-       'color: white; ' +
-       'font-size: 28px; ' +
-       'cursor: pointer; ' +
-       'backdrop-filter: blur(5px); ' +
-       'transition: background 0.2s;';
+       'width: 50px; height: 50px; border-radius: 25px; border: none; background: rgba(0,0,0,0.7); color: white; font-size: 28px; cursor: pointer; backdrop-filter: blur(5px); transition: background 0.2s;';
    zoomInBtn.onmouseover = function() { this.style.background = 'rgba(233,69,96,0.8)'; };
    zoomInBtn.onmouseout = function() { this.style.background = 'rgba(0,0,0,0.7)'; };
    zoomInBtn.onclick = function() {
@@ -256,16 +211,7 @@ GameScene.prototype.addZoomButtons = function() {
    var zoomOutBtn = document.createElement('button');
    zoomOutBtn.textContent = '−';
    zoomOutBtn.style.cssText = 
-       'width: 50px; ' +
-       'height: 50px; ' +
-       'border-radius: 25px; ' +
-       'border: none; ' +
-       'background: rgba(0,0,0,0.7); ' +
-       'color: white; ' +
-       'font-size: 28px; ' +
-       'cursor: pointer; ' +
-       'backdrop-filter: blur(5px); ' +
-       'transition: background 0.2s;';
+       'width: 50px; height: 50px; border-radius: 25px; border: none; background: rgba(0,0,0,0.7); color: white; font-size: 28px; cursor: pointer; backdrop-filter: blur(5px); transition: background 0.2s;';
    zoomOutBtn.onmouseover = function() { this.style.background = 'rgba(233,69,96,0.8)'; };
    zoomOutBtn.onmouseout = function() { this.style.background = 'rgba(0,0,0,0.7)'; };
    zoomOutBtn.onclick = function() {
@@ -279,17 +225,7 @@ GameScene.prototype.addZoomButtons = function() {
    var resetBtn = document.createElement('button');
    resetBtn.textContent = '⟲';
    resetBtn.style.cssText = 
-       'width: 50px; ' +
-       'height: 50px; ' +
-       'border-radius: 25px; ' +
-       'border: none; ' +
-       'background: rgba(0,0,0,0.7); ' +
-       'color: #ff9800; ' +
-       'font-size: 24px; ' +
-       'cursor: pointer; ' +
-       'backdrop-filter: blur(5px); ' +
-       'transition: background 0.2s; ' +
-       'margin-top: 5px;';
+       'width: 50px; height: 50px; border-radius: 25px; border: none; background: rgba(0,0,0,0.7); color: #ff9800; font-size: 24px; cursor: pointer; backdrop-filter: blur(5px); transition: background 0.2s; margin-top: 5px;';
    resetBtn.onmouseover = function() { this.style.background = 'rgba(255,152,0,0.3)'; };
    resetBtn.onmouseout = function() { this.style.background = 'rgba(0,0,0,0.7)'; };
    resetBtn.onclick = function() {
@@ -310,7 +246,6 @@ GameScene.prototype.addZoomButtons = function() {
 // ============================================
 GameScene.prototype.updateCamera = function() {
    this.cameras.main.update();
-   console.log('📷 Камера обновлена: zoom=' + this.cameraZoom.toFixed(2));
 };
 
 // ============================================
@@ -327,10 +262,9 @@ GameScene.prototype.updateDebugText = function() {
 };
 
 // ============================================
-// ✅ ИСПРАВЛЕННЫЙ onUpdate - ПРОВЕРЯЕТ НОВЫЕ ДВИЖЕНИЯ
+// ✅ ИСПРАВЛЕННЫЙ onUpdate
 // ============================================
 GameScene.prototype.onUpdate = function() {
-    // Обновляем анимации танков
     var allAnimationsComplete = true;
     var self = this;
     
@@ -343,7 +277,6 @@ GameScene.prototype.onUpdate = function() {
         }
     });
     
-    // ✅ ОЧИЩАЕМ СТАРЫЕ ОБРАБОТАННЫЕ ДВИЖЕНИЯ (если прошло больше 5 секунд)
     if (this.processedMoves.size > 100) {
         var now = Date.now();
         var toRemove = [];
@@ -361,7 +294,6 @@ GameScene.prototype.onUpdate = function() {
         }
     }
     
-    // ✅ ОБРАБАТЫВАЕМ НОВЫЕ ДВИЖЕНИЯ
     if (allAnimationsComplete && this.gameState && !this.moveProcessingLock) {
         if (this.gameState.lastMoves) {
             var hasNewMoves = false;
@@ -387,7 +319,6 @@ GameScene.prototype.onUpdate = function() {
         }
     }
     
-    // ✅ ОБНОВЛЯЕМ UI ЧЕРЕЗ КОНТРОЛЛЕР
     if (this.gameController) {
         this.gameController.updateUI();
     }
@@ -396,7 +327,7 @@ GameScene.prototype.onUpdate = function() {
 };
 
 // ============================================
-// ✅ ИСПРАВЛЕННЫЙ processLastMoves
+// ✅ processLastMoves
 // ============================================
 GameScene.prototype.processLastMoves = function(lastMoves) {
     if (!this.isReady) return;
@@ -418,14 +349,12 @@ GameScene.prototype.processLastMoves = function(lastMoves) {
             var move = lastMoves[unitId];
             if (!move) continue;
             
-            // ✅ ПРОВЕРЯЕМ, НЕ ОБРАБОТАНО ЛИ УЖЕ
             var moveKey = unitId + '_' + move.fromQ + '_' + move.fromR + '_' + move.toQ + '_' + move.toR;
             if (this.processedMoves.has(moveKey)) {
                 console.log('⏳ Движение уже обработано:', moveKey);
                 continue;
             }
             
-            // Проверяем, есть ли спрайт
             if (!this.tankSprites.has(unitId)) {
                 console.warn('⚠️ Спрайт для танка', unitId, 'не найден');
                 continue;
@@ -433,13 +362,11 @@ GameScene.prototype.processLastMoves = function(lastMoves) {
             
             var sprite = this.tankSprites.get(unitId);
             
-            // ✅ ЕСЛИ АНИМАЦИЯ ИДЕТ - ПРОПУСКАЕМ
             if (sprite.isAnimating) {
                 console.log('⏳ Танк', unitId, 'уже анимируется');
                 continue;
             }
             
-            // ✅ ПРОВЕРЯЕМ СМЕНУ ПОЗИЦИИ
             var currentQ = sprite.unit.q;
             var currentR = sprite.unit.r;
             
@@ -448,25 +375,17 @@ GameScene.prototype.processLastMoves = function(lastMoves) {
                 
                 var direction = HexUtils.getDirection(move.fromQ, move.fromR, move.toQ, move.toR);
                 
-                // Обновляем данные
                 sprite.unit.direction = direction;
                 sprite.unit.q = move.toQ;
                 sprite.unit.r = move.toR;
                 sprite.currentDirection = direction;
                 
-                // ✅ ЗАПУСКАЕМ АНИМАЦИЮ С ОЧЕРЕДЬЮ
                 sprite.animateMove(
-                    move.fromQ, 
-                    move.fromR, 
-                    move.toQ, 
-                    move.toR, 
-                    2000,
+                    move.fromQ, move.fromR, move.toQ, move.toR, 2000,
                     function() {
                         console.log('✅ Анимация завершена для', unitId);
-                        // Отмечаем как обработанное
                         self.processedMoves.add(moveKey);
                         
-                        // ✅ ОТПРАВЛЯЕМ moveComplete НА СЕРВЕР
                         if (self.socket && self.socket.connected) {
                             self.socket.emit('moveComplete', {
                                 unitId: unitId,
@@ -477,7 +396,6 @@ GameScene.prototype.processLastMoves = function(lastMoves) {
                             });
                         }
                         
-                        // Проверяем новые движения
                         setTimeout(function() {
                             if (self.gameState && self.gameState.lastMoves) {
                                 self.processLastMoves(self.gameState.lastMoves);
@@ -487,7 +405,6 @@ GameScene.prototype.processLastMoves = function(lastMoves) {
                 );
                 processedCount++;
             } else {
-                // ✅ ЕСЛИ ПОЗИЦИЯ НЕ СОВПАДАЕТ - ПРИНУДИТЕЛЬНО ОБНОВЛЯЕМ
                 console.log('⚠️ Позиция не совпадает для', unitId, 'обновляем принудительно');
                 var targetPos = this.hexGrid.hexToPixel(move.toQ, move.toR);
                 sprite.container.setPosition(targetPos.x, targetPos.y);
@@ -495,8 +412,6 @@ GameScene.prototype.processLastMoves = function(lastMoves) {
                 sprite.unit.r = move.toR;
                 var dir = HexUtils.getDirection(move.fromQ, move.fromR, move.toQ, move.toR);
                 sprite.updatePosition(move.toQ, move.toR, dir || 'right');
-                
-                // Отмечаем как обработанное
                 this.processedMoves.add(moveKey);
             }
         }
@@ -512,7 +427,7 @@ GameScene.prototype.processLastMoves = function(lastMoves) {
 };
 
 // ============================================
-// ✅ ИСПРАВЛЕННЫЙ updateTanks - ГАРАНТИРУЕТ СОЗДАНИЕ СПРАЙТА С ПРАВИЛЬНЫМ СОСТОЯНИЕМ
+// ✅ updateTanks
 // ============================================
 GameScene.prototype.updateTanks = function(state) {
    if (!state || !this.isReady) return;
@@ -538,13 +453,11 @@ GameScene.prototype.updateTanks = function(state) {
            var sprite = self.tankSprites.get(id);
            var unit = value.unit;
            
-           // ✅ НЕ ОБНОВЛЯЕМ ВО ВРЕМЯ АНИМАЦИИ
            if (sprite.isAnimating) {
                console.log('⏳ Танк', id, 'анимируется, пропускаем обновление');
                return;
            }
            
-           // ✅ ОБНОВЛЯЕМ ПОЗИЦИЮ ТОЛЬКО ЕСЛИ ИЗМЕНИЛАСЬ
            var currentPos = { q: sprite.unit.q, r: sprite.unit.r };
            if (currentPos.q !== unit.q || currentPos.r !== unit.r) {
                console.log('📍 Обновляем позицию', id, 'с', currentPos.q, currentPos.r, 'на', unit.q, unit.r);
@@ -555,7 +468,6 @@ GameScene.prototype.updateTanks = function(state) {
                sprite.updatePosition(unit.q, unit.r, unit.direction);
            }
            
-           // ✅ ОБНОВЛЯЕМ HP
            if (sprite.unit.hp !== unit.hp) {
                sprite.unit.hp = unit.hp;
                sprite.updateHPBar();
@@ -565,7 +477,6 @@ GameScene.prototype.updateTanks = function(state) {
            var sprite = new TankSprite(self, value.unit, self.hexGrid);
            sprite.create();
            
-           // ✅ ДЛЯ ИГРОКА - УСТАНАВЛИВАЕМ ПРАВИЛЬНОЕ НАПРАВЛЕНИЕ
            if (value.isPlayer && value.unit.direction) {
                sprite.unit.direction = value.unit.direction;
                sprite.currentDirection = value.unit.direction;
@@ -574,25 +485,18 @@ GameScene.prototype.updateTanks = function(state) {
            
            self.tankSprites.set(id, sprite);
            
-           // ✅ ЕСЛИ ЭТО ИГРОК - ПРОВЕРЯЕМ, НУЖНА ЛИ АНИМАЦИЯ
            if (value.isPlayer && state.lastMoves && state.lastMoves[id]) {
                var move = state.lastMoves[id];
                if (move) {
                    console.log('🔄 Обнаружено движение игрока при создании спрайта:', move);
-                   // Запускаем анимацию
                    var dir = HexUtils.getDirection(move.fromQ, move.fromR, move.toQ, move.toR);
                    sprite.unit.direction = dir;
                    sprite.currentDirection = dir;
                    sprite.animateMove(
-                       move.fromQ,
-                       move.fromR,
-                       move.toQ,
-                       move.toR,
-                       2000,
+                       move.fromQ, move.fromR, move.toQ, move.toR, 2000,
                        function() {
                            console.log('✅ Анимация при создании завершена');
                            sprite.updateBarrel();
-                           // Удаляем движение из lastMoves
                            if (self.gameState && self.gameState.lastMoves) {
                                delete self.gameState.lastMoves[id];
                            }
@@ -603,7 +507,6 @@ GameScene.prototype.updateTanks = function(state) {
        }
    });
    
-   // ✅ УДАЛЯЕМ УНИЧТОЖЕННЫЕ ТАНКИ
    var tankKeys = self.tankSprites.keys();
    var toRemove = [];
    for (var key of tankKeys) {
@@ -624,7 +527,7 @@ GameScene.prototype.updateTanks = function(state) {
 };
 
 // ============================================
-// ✅ ИСПРАВЛЕННЫЙ onBotAction - используем правильные методы
+// ✅ onBotAction
 // ============================================
 GameScene.prototype.onBotAction = function() {
    if (this.isLocalGame && this.gameController) {
@@ -656,15 +559,10 @@ GameScene.prototype.onBotAction = function() {
                    
                    var self = this;
                    sprite.animateMove(
-                       result.fromQ,
-                       result.fromR,
-                       result.toQ,
-                       result.toR,
-                       2000,
+                       result.fromQ, result.fromR, result.toQ, result.toR, 2000,
                        function() {
                            console.log('✅ Анимация бота завершена');
                            sprite.updateBarrel();
-                           // Обновляем состояние после анимации
                            if (self.gameController) {
                                self.gameController.updateGameState();
                            }
@@ -679,7 +577,7 @@ GameScene.prototype.onBotAction = function() {
 };
 
 // ============================================
-// ✅ ИСПРАВЛЕННЫЙ handleShootResult - используем правильные методы
+// ✅ handleShootResult
 // ============================================
 GameScene.prototype.handleShootResult = function(result) {
    if (!result) return;
@@ -700,7 +598,6 @@ GameScene.prototype.handleShootResult = function(result) {
        this.showMessage('❌ ' + result.message);
    }
    
-   // ✅ ОБНОВЛЯЕМ СОСТОЯНИЕ
    if (this.gameController) {
        this.gameController.updateGameState();
    }
@@ -725,50 +622,63 @@ GameScene.prototype.updateGameState = function(state) {
    
    this.gameState = state;
    
-   // Обновляем карту
    if (state.cells && this.hexGrid) {
        this.hexGrid.drawMap(state.cells);
    }
    
-   // ✅ ОБРАБАТЫВАЕМ ПОСЛЕДНИЕ ДВИЖЕНИЯ
    if (state.lastMoves) {
        console.log('📜 Получены последние движения:', state.lastMoves);
        this.processLastMoves(state.lastMoves);
    }
    
-   // Обновляем танки
    this.updateTanks(state);
    
-   // Обновляем контроллер ввода
    if (this.inputController) {
        this.inputController.setGameState(state);
    }
    
-   // Обновляем UI
    if (this.gameController) {
        this.gameController.updateUI();
    }
 };
 
 // ============================================
-// АНИМАЦИЯ ВЫСТРЕЛА
+// ✅ ОБНОВЛЕННАЯ АНИМАЦИЯ ВЫСТРЕЛА (медленный снаряд + звук попадания)
 // ============================================
 GameScene.prototype.animateShot = function(fromQ, fromR, toQ, toR) {
    var from = this.hexGrid.hexToPixel(fromQ, fromR);
    var to = this.hexGrid.hexToPixel(toQ, toR);
    
+   // Создаем снаряд
    var projectile = this.add.circle(from.x, from.y, 6, 0xff6600);
    projectile.setDepth(20);
    
+   // Свечение снаряда
    var glow = this.add.circle(from.x, from.y, 14, 0xff8800, 0.3);
    glow.setDepth(19);
+   
+   // Находим танк, который стрелял, для анимации отдачи
+   var shootingTank = null;
+   this.tankSprites.forEach(function(sprite, key) {
+       if (sprite.unit && sprite.unit.q === fromQ && sprite.unit.r === fromR) {
+           shootingTank = sprite;
+       }
+   });
+   
+   // Анимация отдачи у стреляющего танка
+   if (shootingTank && shootingTank.playRecoil) {
+       shootingTank.playRecoil();
+   }
+   
+   // ⏱️ МЕДЛЕННЫЙ СНАРЯД (увеличиваем длительность с 250 до 700-900 мс)
+   var duration = 700 + Math.random() * 200;
    
    var self = this;
    this.tweens.add({
        targets: projectile,
        x: to.x,
        y: to.y,
-       duration: 250,
+       duration: duration,
        ease: 'Power2',
        onUpdate: function() {
            glow.x = projectile.x;
@@ -777,9 +687,38 @@ GameScene.prototype.animateShot = function(fromQ, fromR, toQ, toR) {
        onComplete: function() {
            projectile.destroy();
            glow.destroy();
+           
+           // Звук попадания (если есть цель на клетке)
+           self.checkHitSound(toQ, toR);
+           
            self.addExplosion(toQ, toR);
        }
    });
+};
+
+// ============================================
+// ✅ НОВЫЙ МЕТОД - ПРОВЕРКА ПОПАДАНИЯ И ЗВУК
+// ============================================
+GameScene.prototype.checkHitSound = function(q, r) {
+   // Проверяем, есть ли танк на этой клетке
+   var hasTarget = false;
+   var targetSprite = null;
+   
+   this.tankSprites.forEach(function(sprite, key) {
+       if (sprite.unit && sprite.unit.active !== false && 
+           sprite.unit.q === q && sprite.unit.r === r) {
+           hasTarget = true;
+           targetSprite = sprite;
+       }
+   });
+   
+   if (hasTarget && targetSprite) {
+       // Воспроизводим звук попадания через спрайт цели
+       if (targetSprite.playSound) {
+           targetSprite.playSound('hit', 0.5);
+       }
+       console.log('💥 Звук попадания по танку на', q, r);
+   }
 };
 
 // ============================================

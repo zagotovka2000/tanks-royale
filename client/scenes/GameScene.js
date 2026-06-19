@@ -1,4 +1,4 @@
-// client/scenes/GameScene.js - ПОЛНАЯ ВЕРСИЯ БЕЗ СТРЕЛОЧНЫХ ФУНКЦИЙ
+// client/scenes/GameScene.js - ИСПРАВЛЕНИЕ: ОБНОВЛЕННАЯ ОБРАБОТКА ДВИЖЕНИЙ
 
 function GameScene() {
    Phaser.Scene.call(this, { key: 'GameScene' });
@@ -24,6 +24,11 @@ function GameScene() {
    this.cameraStartX = 0;
    this.cameraStartY = 0;
    this.zoomContainer = null;
+   
+   // ✅ НОВЫЕ СВОЙСТВА ДЛЯ ОБРАБОТКИ ДВИЖЕНИЙ
+   this.processedMoves = new Set(); // Уже обработанные движения
+   this.moveProcessingLock = false;
+   this.lastProcessedState = null;
 }
 
 GameScene.prototype = Object.create(Phaser.Scene.prototype);
@@ -306,95 +311,56 @@ GameScene.prototype.onUpdate = function() {
         }
     });
     
-    // ✅ ПРОВЕРЯЕМ НОВЫЕ ДВИЖЕНИЯ, ЕСЛИ ВСЕ АНИМАЦИИ ЗАВЕРШЕНЫ
-    if (allAnimationsComplete && this.gameState) {
-        // Проверяем, есть ли новые движения
+    // ✅ ОЧИЩАЕМ СТАРЫЕ ОБРАБОТАННЫЕ ДВИЖЕНИЯ (если прошло больше 5 секунд)
+    if (this.processedMoves.size > 100) {
+        var now = Date.now();
+        var toRemove = [];
+        for (var key of this.processedMoves) {
+            var parts = key.split('_');
+            if (parts.length >= 5) {
+                var timestamp = parseInt(parts[parts.length - 1]);
+                if (now - timestamp > 5000) {
+                    toRemove.push(key);
+                }
+            }
+        }
+        for (var i = 0; i < toRemove.length; i++) {
+            this.processedMoves.delete(toRemove[i]);
+        }
+    }
+    
+    // ✅ ОБРАБАТЫВАЕМ НОВЫЕ ДВИЖЕНИЯ
+    if (allAnimationsComplete && this.gameState && !this.moveProcessingLock) {
         if (this.gameState.lastMoves) {
             var hasNewMoves = false;
             for (var unitId in this.gameState.lastMoves) {
                 if (!this.gameState.lastMoves.hasOwnProperty(unitId)) continue;
                 var move = this.gameState.lastMoves[unitId];
-                if (this.tankSprites.has(unitId)) {
-                    var sprite = this.tankSprites.get(unitId);
-                    if (!sprite.isAnimating) {
-                        // Проверяем, не изменилась ли позиция
-                        if (sprite.unit.q !== move.toQ || sprite.unit.r !== move.toR) {
-                            hasNewMoves = true;
-                            break;
+                var moveKey = unitId + '_' + move.fromQ + '_' + move.fromR + '_' + move.toQ + '_' + move.toR;
+                if (!this.processedMoves.has(moveKey)) {
+                    if (this.tankSprites.has(unitId)) {
+                        var sprite = this.tankSprites.get(unitId);
+                        if (!sprite.isAnimating) {
+                            if (sprite.unit.q !== move.toQ || sprite.unit.r !== move.toR) {
+                                hasNewMoves = true;
+                                break;
+                            }
                         }
                     }
                 }
             }
             if (hasNewMoves) {
-                console.log('🔄 Обнаружены новые движения, обрабатываем...');
                 this.processLastMoves(this.gameState.lastMoves);
             }
         }
     }
     
-    // Обновляем UI
+    // ✅ ОБНОВЛЯЕМ UI ЧЕРЕЗ КОНТРОЛЛЕР
     if (this.gameController) {
         this.gameController.updateUI();
     }
     
-    // Обновляем отладочную информацию
     this.updateDebugText();
-};
-
-// ============================================
-// ДЕЙСТВИЕ БОТА
-// ============================================
-GameScene.prototype.onBotAction = function() {
-   if (this.isLocalGame && this.gameController) {
-       var result = this.gameController.botAction();
-       if (result) {
-           this.handleShootResult(result);
-       }
-   }
-};
-
-// ============================================
-// ОБНОВЛЕНИЕ СОСТОЯНИЯ ИГРЫ
-// ============================================
-GameScene.prototype.updateGameState = function(state) {
-   if (!this.isReady) {
-       console.log('⏳ Сцена еще не готова, откладываем обновление');
-       return;
-   }
-   
-   if (!state) {
-       if (this.gameController && this.gameController.gameState) {
-           state = this.gameController.gameState;
-       } else {
-           return;
-       }
-   }
-   
-   this.gameState = state;
-   
-   // Обновляем карту
-   if (state.cells && this.hexGrid) {
-       this.hexGrid.drawMap(state.cells);
-   }
-   
-   // ✅ ОБРАБАТЫВАЕМ ПОСЛЕДНИЕ ДВИЖЕНИЯ
-   if (state.lastMoves) {
-       console.log('📜 Получены последние движения:', state.lastMoves);
-       this.processLastMoves(state.lastMoves);
-   }
-   
-   // Обновляем танки
-   this.updateTanks(state);
-   
-   // Обновляем контроллер ввода
-   if (this.inputController) {
-       this.inputController.setGameState(state);
-   }
-   
-   // Обновляем UI
-   if (this.gameController) {
-       this.gameController.updateUI();
-   }
 };
 
 // ============================================
@@ -403,108 +369,113 @@ GameScene.prototype.updateGameState = function(state) {
 GameScene.prototype.processLastMoves = function(lastMoves) {
     if (!this.isReady) return;
     if (!lastMoves) return;
-    
-    var self = this;
-    var processedCount = 0;
-    
-    for (var unitId in lastMoves) {
-        if (!lastMoves.hasOwnProperty(unitId)) continue;
-        
-        var move = lastMoves[unitId];
-        if (!move) continue;
-        
-        // Проверяем, есть ли спрайт для этого танка
-        if (!this.tankSprites.has(unitId)) {
-            console.warn('⚠️ Спрайт для танка', unitId, 'не найден, создаем');
-            // Создаем спрайт, если его нет
-            var state = this.gameState;
-            var unitData = null;
-            
-            // Ищем данные танка в состоянии
-            if (state) {
-                if (state.myTank && state.myTank.id === unitId) {
-                    unitData = state.myTank;
-                } else if (state.enemies) {
-                    for (var i = 0; i < state.enemies.length; i++) {
-                        if (state.enemies[i].id === unitId) {
-                            unitData = state.enemies[i];
-                            break;
-                        }
-                    }
-                }
-            }
-            
-            if (unitData) {
-                var newSprite = new TankSprite(self, unitData, self.hexGrid);
-                newSprite.create();
-                newSprite.updateBarrel();
-                self.tankSprites.set(unitId, newSprite);
-            } else {
-                console.warn('⚠️ Не найден юнит для', unitId);
-                continue;
-            }
-        }
-        
-        var sprite = this.tankSprites.get(unitId);
-        
-        // ✅ ЕСЛИ ТАНК УЖЕ АНИМИРУЕТСЯ - ПРОПУСКАЕМ
-        if (sprite.isAnimating) {
-            console.log('⏳ Танк', unitId, 'уже анимируется');
-            continue;
-        }
-        
-        // ✅ ПРОВЕРЯЕМ, ЧТО ПОЗИЦИЯ ИЗМЕНИЛАСЬ
-        var currentQ = sprite.unit.q;
-        var currentR = sprite.unit.r;
-        
-        // Если текущая позиция не совпадает с from - значит это новое движение
-        if (currentQ === move.fromQ && currentR === move.fromR) {
-            console.log('🎬 Анимация для', unitId, 'с', move.fromQ, move.fromR, 'на', move.toQ, move.toR);
-            
-            var direction = HexUtils.getDirection(move.fromQ, move.fromR, move.toQ, move.toR);
-            
-            // ✅ ОБНОВЛЯЕМ ПОЗИЦИЮ И НАПРАВЛЕНИЕ
-            sprite.unit.direction = direction;
-            sprite.unit.q = move.toQ;
-            sprite.unit.r = move.toR;
-            sprite.currentDirection = direction;
-            
-            // ✅ ЗАПУСКАЕМ АНИМАЦИЮ (3 СЕКУНДЫ)
-            sprite.animateMove(
-                move.fromQ, 
-                move.fromR, 
-                move.toQ, 
-                move.toR, 
-                3000, // ✅ 3 СЕКУНДЫ
-                function() {
-                    console.log('✅ Анимация завершена для', unitId);
-                    var pos = self.hexGrid.hexToPixel(move.toQ, move.toR);
-                    sprite.container.setPosition(pos.x, pos.y);
-                    sprite.updateBarrel();
-                    
-                    // ✅ ПРОВЕРЯЕМ, НЕ ПОЯВИЛИСЬ ЛИ НОВЫЕ ДВИЖЕНИЯ
-                    setTimeout(function() {
-                        if (self.gameState && self.gameState.lastMoves) {
-                            self.processLastMoves(self.gameState.lastMoves);
-                        }
-                    }, 100);
-                }
-            );
-            processedCount++;
-        } else {
-            // ✅ ЕСЛИ ПОЗИЦИЯ НЕ СОВПАДАЕТ - ПРИНУДИТЕЛЬНО ОБНОВЛЯЕМ
-            console.log('⚠️ Позиция не совпадает для', unitId, 'текущая', currentQ, currentR, 'ожидаемая from', move.fromQ, move.fromR);
-            // Обновляем позицию мгновенно
-            var targetPos = self.hexGrid.hexToPixel(move.toQ, move.toR);
-            sprite.container.setPosition(targetPos.x, targetPos.y);
-            sprite.unit.q = move.toQ;
-            sprite.unit.r = move.toR;
-            sprite.updatePosition(move.toQ, move.toR, move.direction || 'right');
-        }
+    if (this.moveProcessingLock) {
+        console.log('⏳ Уже обрабатываем движения');
+        return;
     }
     
-    if (processedCount > 0) {
-        console.log('✅ Обработано движений:', processedCount);
+    this.moveProcessingLock = true;
+    var self = this;
+    
+    try {
+        var processedCount = 0;
+        
+        for (var unitId in lastMoves) {
+            if (!lastMoves.hasOwnProperty(unitId)) continue;
+            
+            var move = lastMoves[unitId];
+            if (!move) continue;
+            
+            // ✅ ПРОВЕРЯЕМ, НЕ ОБРАБОТАНО ЛИ УЖЕ
+            var moveKey = unitId + '_' + move.fromQ + '_' + move.fromR + '_' + move.toQ + '_' + move.toR;
+            if (this.processedMoves.has(moveKey)) {
+                console.log('⏳ Движение уже обработано:', moveKey);
+                continue;
+            }
+            
+            // Проверяем, есть ли спрайт
+            if (!this.tankSprites.has(unitId)) {
+                console.warn('⚠️ Спрайт для танка', unitId, 'не найден');
+                continue;
+            }
+            
+            var sprite = this.tankSprites.get(unitId);
+            
+            // ✅ ЕСЛИ АНИМАЦИЯ ИДЕТ - ПРОПУСКАЕМ
+            if (sprite.isAnimating) {
+                console.log('⏳ Танк', unitId, 'уже анимируется');
+                continue;
+            }
+            
+            // ✅ ПРОВЕРЯЕМ СМЕНУ ПОЗИЦИИ
+            var currentQ = sprite.unit.q;
+            var currentR = sprite.unit.r;
+            
+            if (currentQ === move.fromQ && currentR === move.fromR) {
+                console.log('🎬 Анимация для', unitId, 'с', move.fromQ, move.fromR, 'на', move.toQ, move.toR);
+                
+                var direction = HexUtils.getDirection(move.fromQ, move.fromR, move.toQ, move.toR);
+                
+                // Обновляем данные
+                sprite.unit.direction = direction;
+                sprite.unit.q = move.toQ;
+                sprite.unit.r = move.toR;
+                sprite.currentDirection = direction;
+                
+                // ✅ ЗАПУСКАЕМ АНИМАЦИЮ С ОЧЕРЕДЬЮ
+                sprite.animateMove(
+                    move.fromQ, 
+                    move.fromR, 
+                    move.toQ, 
+                    move.toR, 
+                    2000,
+                    function() {
+                        console.log('✅ Анимация завершена для', unitId);
+                        // Отмечаем как обработанное
+                        self.processedMoves.add(moveKey);
+                        
+                        // ✅ ОТПРАВЛЯЕМ moveComplete НА СЕРВЕР
+                        if (self.socket && self.socket.connected) {
+                            self.socket.emit('moveComplete', {
+                                unitId: unitId,
+                                fromQ: move.fromQ,
+                                fromR: move.fromR,
+                                toQ: move.toQ,
+                                toR: move.toR
+                            });
+                        }
+                        
+                        // Проверяем новые движения
+                        setTimeout(function() {
+                            if (self.gameState && self.gameState.lastMoves) {
+                                self.processLastMoves(self.gameState.lastMoves);
+                            }
+                        }, 100);
+                    }
+                );
+                processedCount++;
+            } else {
+                // ✅ ЕСЛИ ПОЗИЦИЯ НЕ СОВПАДАЕТ - ПРИНУДИТЕЛЬНО ОБНОВЛЯЕМ
+                console.log('⚠️ Позиция не совпадает для', unitId, 'обновляем принудительно');
+                var targetPos = this.hexGrid.hexToPixel(move.toQ, move.toR);
+                sprite.container.setPosition(targetPos.x, targetPos.y);
+                sprite.unit.q = move.toQ;
+                sprite.unit.r = move.toR;
+                var dir = HexUtils.getDirection(move.fromQ, move.fromR, move.toQ, move.toR);
+                sprite.updatePosition(move.toQ, move.toR, dir || 'right');
+                
+                // Отмечаем как обработанное
+                this.processedMoves.add(moveKey);
+            }
+        }
+        
+        if (processedCount > 0) {
+            console.log('✅ Обработано движений:', processedCount);
+        }
+    } catch (error) {
+        console.error('❌ Ошибка в processLastMoves:', error);
+    } finally {
+        this.moveProcessingLock = false;
     }
 };
 
@@ -579,55 +550,62 @@ GameScene.prototype.updateTanks = function(state) {
 };
 
 // ============================================
-// ОБРАБОТКА ИСТОРИИ ДВИЖЕНИЙ (для обратной совместимости)
+// ✅ ИСПРАВЛЕННЫЙ onBotAction - используем правильные методы
 // ============================================
-GameScene.prototype.processMoveHistory = function(moveHistory) {
-   if (!this.isReady) return;
-   
-   var self = this;
-   
-   for (var unitId in moveHistory) {
-       if (!moveHistory.hasOwnProperty(unitId)) continue;
-       
-       var history = moveHistory[unitId];
-       if (!history || history.length === 0) continue;
-       
-       var lastMove = history[history.length - 1];
-       
-       if (this.tankSprites.has(unitId)) {
-           var sprite = this.tankSprites.get(unitId);
-           
-           if (sprite.isAnimating) {
-               console.log('⏳ Танк', unitId, 'уже анимируется, пропускаем');
-               continue;
-           }
-           
-           console.log('🎬 Запуск анимации для', unitId, 'с', lastMove.fromQ, lastMove.fromR, 'на', lastMove.toQ, lastMove.toR);
-           
-           var direction = HexUtils.getDirection(lastMove.fromQ, lastMove.fromR, lastMove.toQ, lastMove.toR);
-           sprite.unit.direction = direction;
-           sprite.unit.q = lastMove.toQ;
-           sprite.unit.r = lastMove.toR;
-           
-           sprite.animateMove(
-               lastMove.fromQ, 
-               lastMove.fromR, 
-               lastMove.toQ, 
-               lastMove.toR, 
-               2000,
-               function() {
-                   console.log('✅ Анимация завершена для', unitId);
-                   var pos = self.hexGrid.hexToPixel(lastMove.toQ, lastMove.toR);
-                   sprite.container.setPosition(pos.x, pos.y);
-                   sprite.updateBarrel();
+GameScene.prototype.onBotAction = function() {
+   if (this.isLocalGame && this.gameController) {
+       var result = this.gameController.botAction();
+       if (result) {
+           if (result.type === 'move') {
+               console.log('🤖 Бот движется:', result.unitId, 'с', result.fromQ, result.fromR, 'на', result.toQ, result.toR);
+               
+               var unitId = result.unitId;
+               var state = this.gameState;
+               var unitData = null;
+               
+               if (state && state.enemies) {
+                   for (var i = 0; i < state.enemies.length; i++) {
+                       if (state.enemies[i].id === unitId) {
+                           unitData = state.enemies[i];
+                           break;
+                       }
+                   }
                }
-           );
+               
+               if (unitData) {
+                   var sprite = this.tankSprites.get(unitId);
+                   if (!sprite) {
+                       sprite = new TankSprite(this, unitData, this.hexGrid);
+                       sprite.create();
+                       this.tankSprites.set(unitId, sprite);
+                   }
+                   
+                   var self = this;
+                   sprite.animateMove(
+                       result.fromQ,
+                       result.fromR,
+                       result.toQ,
+                       result.toR,
+                       2000,
+                       function() {
+                           console.log('✅ Анимация бота завершена');
+                           sprite.updateBarrel();
+                           // Обновляем состояние после анимации
+                           if (self.gameController) {
+                               self.gameController.updateGameState();
+                           }
+                       }
+                   );
+               }
+           } else {
+               this.handleShootResult(result);
+           }
        }
    }
 };
 
 // ============================================
-// ОБРАБОТКА РЕЗУЛЬТАТА ВЫСТРЕЛА
+// ✅ ИСПРАВЛЕННЫЙ handleShootResult - используем правильные методы
 // ============================================
 GameScene.prototype.handleShootResult = function(result) {
    if (!result) return;
@@ -648,8 +626,53 @@ GameScene.prototype.handleShootResult = function(result) {
        this.showMessage('❌ ' + result.message);
    }
    
+   // ✅ ОБНОВЛЯЕМ СОСТОЯНИЕ
    if (this.gameController) {
        this.gameController.updateGameState();
+   }
+};
+
+// ============================================
+// ОБНОВЛЕНИЕ СОСТОЯНИЯ ИГРЫ
+// ============================================
+GameScene.prototype.updateGameState = function(state) {
+   if (!this.isReady) {
+       console.log('⏳ Сцена еще не готова, откладываем обновление');
+       return;
+   }
+   
+   if (!state) {
+       if (this.gameController && this.gameController.gameState) {
+           state = this.gameController.gameState;
+       } else {
+           return;
+       }
+   }
+   
+   this.gameState = state;
+   
+   // Обновляем карту
+   if (state.cells && this.hexGrid) {
+       this.hexGrid.drawMap(state.cells);
+   }
+   
+   // ✅ ОБРАБАТЫВАЕМ ПОСЛЕДНИЕ ДВИЖЕНИЯ
+   if (state.lastMoves) {
+       console.log('📜 Получены последние движения:', state.lastMoves);
+       this.processLastMoves(state.lastMoves);
+   }
+   
+   // Обновляем танки
+   this.updateTanks(state);
+   
+   // Обновляем контроллер ввода
+   if (this.inputController) {
+       this.inputController.setGameState(state);
+   }
+   
+   // Обновляем UI
+   if (this.gameController) {
+       this.gameController.updateUI();
    }
 };
 
@@ -783,58 +806,7 @@ GameScene.prototype.onResize = function() {
        }
    }
 };
-// client/scenes/GameScene.js - ДОБАВЛЯЕМ ОБРАБОТКУ ДВИЖЕНИЙ БОТА
 
-GameScene.prototype.onBotAction = function() {
-   if (this.isLocalGame && this.gameController) {
-       var result = this.gameController.botAction();
-       if (result) {
-           // ✅ ЕСЛИ ЭТО ДВИЖЕНИЕ БОТА
-           if (result.type === 'move') {
-               console.log('🤖 Бот движется:', result.unitId, 'с', result.fromQ, result.fromR, 'на', result.toQ, result.toR);
-               
-               // Создаем или обновляем спрайт бота
-               var unitId = result.unitId;
-               var state = this.gameState;
-               var unitData = null;
-               
-               if (state && state.enemies) {
-                   for (var i = 0; i < state.enemies.length; i++) {
-                       if (state.enemies[i].id === unitId) {
-                           unitData = state.enemies[i];
-                           break;
-                       }
-                   }
-               }
-               
-               if (unitData) {
-                   var sprite = this.tankSprites.get(unitId);
-                   if (!sprite) {
-                       sprite = new TankSprite(this, unitData, this.hexGrid);
-                       sprite.create();
-                       this.tankSprites.set(unitId, sprite);
-                   }
-                   
-                   // ✅ ЗАПУСКАЕМ АНИМАЦИЮ ДВИЖЕНИЯ БОТА
-                   var self = this;
-                   sprite.animateMove(
-                       result.fromQ,
-                       result.fromR,
-                       result.toQ,
-                       result.toR,
-                       3000,
-                       function() {
-                           console.log('✅ Анимация бота завершена');
-                           sprite.updateBarrel();
-                       }
-                   );
-               }
-           } else {
-               this.handleShootResult(result);
-           }
-       }
-   }
-};
 // ============================================
 // ОСТАНОВКА СЦЕНЫ
 // ============================================

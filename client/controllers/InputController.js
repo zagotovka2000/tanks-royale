@@ -1,4 +1,4 @@
-// client/controllers/InputController.js - ФИНАЛЬНАЯ ВЕРСИЯ
+// client/controllers/InputController.js - ИСПРАВЛЕНИЕ: ОБНОВЛЕННАЯ ЛОГИКА
 
 function InputController(scene, gameController) {
    this.scene = scene;
@@ -10,6 +10,11 @@ function InputController(scene, gameController) {
    this.lastClickTime = 0;
    this.throttleDelay = 150;
    this.selectedTank = null; // Танк, который выбран для движения
+   
+   // ✅ НОВЫЕ СВОЙСТВА
+   this.isProcessingAction = false;
+   this.pendingMove = null;
+   this.actionQueue = [];
 }
 
 InputController.prototype.init = function() {
@@ -49,11 +54,19 @@ InputController.prototype.init = function() {
    this.showMessage('🔫 Режим: СТРЕЛЬБА (нажмите на свой танк для переключения)');
 };
 
+// ============================================
 // ✅ КЛЮЧЕВОЙ МЕТОД - обрабатывает клик по подсвеченной клетке
+// ============================================
 InputController.prototype.handleClick = function(pointer) {
    if (!this.isEnabled) return;
    if (this.gameController.isGameOver()) {
        this.showMessage('⚠️ Игра окончена');
+       return;
+   }
+   
+   // ✅ НЕ ОБРАБАТЫВАЕМ КЛИКИ ВО ВРЕМЯ АНИМАЦИИ
+   if (this.isProcessingAction) {
+       this.showMessage('⏳ Подождите, выполняется действие...');
        return;
    }
    
@@ -102,19 +115,22 @@ InputController.prototype.handleClick = function(pointer) {
        if (isValid) {
            console.log('✅ Клетка доступна, двигаемся!');
            
-           // ✅ ДВИГАЕМ ТАНК
-           this.gameController.moveTo(hex.q, hex.r);
+           // ✅ БЛОКИРУЕМ ОБРАБОТКУ
+           this.isProcessingAction = true;
            
-           // ✅ ПРИНУДИТЕЛЬНО ОБНОВЛЯЕМ СЦЕНУ
-           this.scene.updateTanks(this.scene.gameState);
-           
-           // Очищаем выделение
-           this.clearTankSelection();
-           this.showMessage('🚶 Движение на (' + hex.q + ', ' + hex.r + ')');
-           
-           // Переключаемся обратно в режим стрельбы
-           this.moveMode = false;
-           this.updateUI();
+           // ✅ ОТПРАВЛЯЕМ ЗАПРОС ДВИЖЕНИЯ
+           this.gameController.requestMove(hex.q, hex.r, function(success, data) {
+               this.isProcessingAction = false;
+               
+               if (success) {
+                   this.showMessage('🚶 Движение на (' + hex.q + ', ' + hex.r + ')');
+                   this.clearTankSelection();
+                   this.moveMode = false;
+                   this.updateUI();
+               } else {
+                   this.showMessage('❌ ' + (data.message || 'Движение отклонено'));
+               }
+           }.bind(this));
        } else {
            this.showMessage('⚠️ Нельзя туда двигаться');
        }
@@ -137,7 +153,9 @@ InputController.prototype.handleClick = function(pointer) {
    }
 };
 
+// ============================================
 // ✅ ОБНОВЛЕННЫЙ МЕТОД: Выбор танка для движения
+// ============================================
 InputController.prototype.selectTank = function(tank) {
     console.log('🎯 Выбран танк для движения:', tank.q, tank.r);
     
@@ -158,15 +176,24 @@ InputController.prototype.selectTank = function(tank) {
     this.showMessage('🚶 Режим движения: выберите подсвеченную клетку');
 };
 
+// ============================================
 // ✅ НОВЫЙ МЕТОД: Очистка выбора танка
+// ============================================
 InputController.prototype.clearTankSelection = function() {
    this.selectedTank = null;
    this.validMoveNeighbors = [];
    this.scene.hexGrid.clearMoveHighlight();
 };
 
+// ============================================
 // ✅ ОБНОВЛЕННЫЙ toggleMode
+// ============================================
 InputController.prototype.toggleMode = function() {
+   if (this.isProcessingAction) {
+       this.showMessage('⏳ Подождите, выполняется действие...');
+       return;
+   }
+   
    this.moveMode = !this.moveMode;
    this.updateUI();
    
@@ -190,7 +217,9 @@ InputController.prototype.toggleMode = function() {
    }
 };
 
+// ============================================
 // ✅ ИСПРАВЛЕННЫЙ highlightMoveArea - ЖЕЛТЫЙ ЦЕНТР, ЗЕЛЕНЫЕ СОСЕДИ
+// ============================================
 InputController.prototype.highlightMoveArea = function() {
     var state = this.scene.gameState;
     if (!state || !state.myTank) return;
@@ -254,7 +283,9 @@ InputController.prototype.highlightMoveArea = function() {
     }
 };
 
+// ============================================
 // ✅ ОБНОВЛЕННЫЙ selectTarget
+// ============================================
 InputController.prototype.selectTarget = function(q, r) {
    console.log('🎯 selectTarget вызван для гекса:', q, r);
    
@@ -301,7 +332,9 @@ InputController.prototype.selectTarget = function(q, r) {
    if (targetIndicator) targetIndicator.style.display = 'block';
 };
 
+// ============================================
 // ✅ ОБНОВЛЕННЫЙ clearTarget
+// ============================================
 InputController.prototype.clearTarget = function() {
    console.log('🎯 clearTarget вызван');
    this.selectedTarget = null;
@@ -317,7 +350,9 @@ InputController.prototype.clearTarget = function() {
    if (targetIndicator) targetIndicator.style.display = 'none';
 };
 
+// ============================================
 // ✅ ОБНОВЛЕННЫЙ executeShoot
+// ============================================
 InputController.prototype.executeShoot = function() {
    if (!this.selectedTarget) {
        this.showMessage('⚠️ Сначала выберите цель');
@@ -329,18 +364,18 @@ InputController.prototype.executeShoot = function() {
        return;
    }
    
-   var state = this.scene.gameState;
-   if (!state || !state.myTank) {
-       this.showMessage('⚠️ Ваш танк не найден');
+   if (this.isProcessingAction) {
+       this.showMessage('⏳ Подождите, выполняется действие...');
        return;
    }
    
-   var myTank = state.myTank;
-   if (!myTank.active) {
+   var state = this.scene.gameState;
+   if (!state || !state.myTank || !state.myTank.active) {
        this.showMessage('⚠️ Ваш танк уничтожен');
        return;
    }
    
+   var myTank = state.myTank;
    var target = this.selectedTarget;
    var distance = HexUtils.distance(myTank.q, myTank.r, target.q, target.r);
    
@@ -349,7 +384,6 @@ InputController.prototype.executeShoot = function() {
        return;
    }
    
-   // Проверяем перезарядку
    var cooldown = this.gameController.getRemainingCooldown();
    if (cooldown > 0) {
        var sec = Math.ceil(cooldown / 1000);
@@ -357,12 +391,28 @@ InputController.prototype.executeShoot = function() {
        return;
    }
    
-   // Отправляем выстрел
-   this.gameController.shootAt(target.q, target.r);
-   this.showMessage('🔫 Выстрел по (' + target.q + ', ' + target.r + ')!');
+   // ✅ БЛОКИРУЕМ ОБРАБОТКУ
+   this.isProcessingAction = true;
+   
+   // ✅ ОТПРАВЛЯЕМ ЗАПРОС ВЫСТРЕЛА
+   var result = this.gameController.shootAt(target.q, target.r);
+   if (result && result.success) {
+       this.showMessage('🔫 Выстрел по (' + target.q + ', ' + target.r + ')!');
+       // Очищаем цель после выстрела
+       this.clearTarget();
+   } else if (result && !result.success) {
+       this.showMessage('❌ ' + (result.message || 'Ошибка выстрела'));
+   }
+   
+   // Разблокируем через секунду (защита от спама)
+   setTimeout(function() {
+       this.isProcessingAction = false;
+   }.bind(this), 500);
 };
 
+// ============================================
 // ✅ ОБНОВЛЕННЫЙ updateUI
+// ============================================
 InputController.prototype.updateUI = function() {
    var modeIndicator = document.getElementById('modeIndicator');
    if (modeIndicator) {
@@ -385,7 +435,9 @@ InputController.prototype.updateUI = function() {
    }
 };
 
+// ============================================
 // ✅ ОБНОВЛЕННЫЙ setGameState
+// ============================================
 InputController.prototype.setGameState = function(state) {
    // Если танк игрока переместился - обновляем подсветку движения
    if (this.moveMode && state && state.myTank) {
@@ -401,6 +453,16 @@ InputController.prototype.setGameState = function(state) {
    }
 };
 
+// ============================================
+// ✅ ВСПОМОГАТЕЛЬНЫЙ МЕТОД ДЛЯ ПРОВЕРКИ ГОТОВНОСТИ
+// ============================================
+InputController.prototype.isReady = function() {
+   return !this.isProcessingAction && this.isEnabled;
+};
+
+// ============================================
+// ✅ ОБНОВЛЕННЫЙ showMessage
+// ============================================
 InputController.prototype.showMessage = function(text) {
    console.log('📝 ' + text);
    var container = document.getElementById('messages');
@@ -417,14 +479,23 @@ InputController.prototype.showMessage = function(text) {
    }, 2500);
 };
 
+// ============================================
+// ✅ ОБНОВЛЕННЫЙ destroy
+// ============================================
 InputController.prototype.destroy = function() {
+   if (this.scene && this.scene.input) {
+       this.scene.input.off('pointerdown');
+   }
    this.scene = null;
    this.gameController = null;
    this.selectedTarget = null;
    this.selectedTank = null;
    this.validMoveNeighbors = [];
+   this.actionQueue = [];
+   this.isProcessingAction = false;
 };
 
+// Экспорт
 if (typeof window !== 'undefined') {
    window.InputController = InputController;
 }

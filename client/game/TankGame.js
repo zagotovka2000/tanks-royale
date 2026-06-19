@@ -1,4 +1,4 @@
-// client/game/TankGame.js - ДОБАВЛЯЕМ НОВЫЕ МЕТОДЫ
+// client/game/TankGame.js - ИСПРАВЛЕНИЕ: РАЗДЕЛЬНЫЕ КУЛДАУНЫ
 
 // ✅ Загружаем зависимости для сервера
 if (typeof module !== 'undefined' && module.exports) {
@@ -6,7 +6,6 @@ if (typeof module !== 'undefined' && module.exports) {
    var { TankUnit } = require('./TankUnit.js');
    var HexUtils = require('../utils/HexUtils.js');
 } else {
-   // В браузере все уже загружено через window
    var EffectManager = window.EffectManager;
    var TankUnit = window.TankUnit;
    var HexUtils = window.HexUtils;
@@ -16,9 +15,14 @@ function TankGame() {
    this.radius = 10;
    this.gameOver = false;
    this.winner = null;
-   this.lastActionTime = 0;
-   this.cooldown = 2000;
-   this._lastPositions = new Map(); // ✅ ИНИЦИАЛИЗИРУЕМ MAP ДЛЯ ПОЗИЦИЙ
+   
+   // ✅ РАЗДЕЛЬНЫЕ КУЛДАУНЫ
+   this.lastMoveTime = 0;
+   this.moveCooldown = 1000; // 1 секунда между движениями
+   this.lastShootTime = 0;
+   this.shootCooldown = 2500; // 2.5 секунды между выстрелами
+   
+   this._lastPositions = new Map();
 
    this.cells = [];
    this.players = [];
@@ -30,6 +34,38 @@ function TankGame() {
    this.initializeUnits();
 }
 
+// ✅ МЕТОДЫ ПРОВЕРКИ КУЛДАУНОВ
+TankGame.prototype.canMove = function(unit) {
+   if (!unit || !unit.active) return false;
+   var now = Date.now();
+   return (now - this.lastMoveTime) >= this.moveCooldown;
+};
+
+TankGame.prototype.canShoot = function(unit) {
+   if (!unit || !unit.active) return false;
+   var now = Date.now();
+   return (now - this.lastShootTime) >= this.shootCooldown;
+};
+
+TankGame.prototype.getRemainingMoveCooldown = function() {
+   var now = Date.now();
+   return Math.max(0, this.moveCooldown - (now - this.lastMoveTime));
+};
+
+TankGame.prototype.getRemainingShootCooldown = function() {
+   var now = Date.now();
+   return Math.max(0, this.shootCooldown - (now - this.lastShootTime));
+};
+
+// ✅ ДОБАВЛЯЕМ МЕТОД getRemainingCooldown() ДЛЯ ОБРАТНОЙ СОВМЕСТИМОСТИ
+TankGame.prototype.getRemainingCooldown = function() {
+   // Возвращаем максимальный кулдаун для обратной совместимости
+   var moveCooldown = this.getRemainingMoveCooldown ? this.getRemainingMoveCooldown() : 0;
+   var shootCooldown = this.getRemainingShootCooldown ? this.getRemainingShootCooldown() : 0;
+   return Math.max(moveCooldown, shootCooldown);
+};
+
+// ✅ ГЕНЕРАЦИЯ КАРТЫ
 TankGame.prototype.generateMap = function() {
    this.cells = [];
    for (var q = -this.radius; q <= this.radius; q++) {
@@ -50,6 +86,7 @@ TankGame.prototype.generateMap = function() {
    console.log('Карта создана: ' + this.cells.length + ' гексов');
 };
 
+// ✅ ИНИЦИАЛИЗАЦИЯ ЮНИТОВ
 TankGame.prototype.initializeUnits = function() {
    var player = new TankUnit(
        'player1',
@@ -91,11 +128,6 @@ TankGame.prototype.getAllUnits = function() {
    return this.players.concat(this.enemies);
 };
 
-TankGame.prototype.getRemainingCooldown = function() {
-   var now = Date.now();
-   return Math.max(0, this.cooldown - (now - this.lastActionTime));
-};
-
 TankGame.prototype.isValidCell = function(q, r) {
    return HexUtils.isValidCell(q, r, this.radius);
 };
@@ -129,173 +161,158 @@ TankGame.prototype.setLastPosition = function(unitId, q, r) {
     this._lastPositions.set(unitId, { q: q, r: r });
 };
 
-// ✅ ОБНОВЛЕННЫЙ canMoveToCell - БЕЗ ПРОВЕРКИ КУЛДАУНА
-TankGame.prototype.canMoveToCell = function(unitId, targetQ, targetR) {
-    var unit = this.getAllUnits().find(function(u) {
-        return u.id === unitId && u.active;
-    });
-    if (!unit) return false;
-
-    // ✅ УБИРАЕМ ПРОВЕРКУ КУЛДАУНА
-    // if (this.getRemainingCooldown() > 0) return false;
-
-    if (!HexUtils.areAdjacent(unit.q, unit.r, targetQ, targetR)) return false;
-
-    var occupied = this.getAllUnits().some(function(u) {
-        return u.active && u !== unit && u.q === targetQ && u.r === targetR;
-    });
-    if (occupied) return false;
-
-    return true;
-};
-
-// ✅ ИСПРАВЛЕННЫЙ moveToCell - СОХРАНЯЕТ ПРЕДЫДУЩУЮ ПОЗИЦИЮ
+// ✅ ИСПРАВЛЕННЫЙ moveToCell - ИСПОЛЬЗУЕТ canMove()
 TankGame.prototype.moveToCell = function(unitId, targetQ, targetR) {
-    var unit = this.getAllUnits().find(function(u) {
-        return u.id === unitId && u.active;
-    });
-    if (!unit) return false;
+   var unit = this.getAllUnits().find(function(u) {
+       return u.id === unitId && u.active;
+   });
+   if (!unit) return false;
 
-    // Убираем проверку кулдауна для движения
-    // if (this.getRemainingCooldown() > 0) return false;
+   // ✅ ПРОВЕРЯЕМ КУЛДАУН ДВИЖЕНИЯ
+   if (!this.canMove(unit)) {
+       console.log('⏳ Кулдаун движения:', this.getRemainingMoveCooldown(), 'мс');
+       return false;
+   }
 
-    if (!HexUtils.areAdjacent(unit.q, unit.r, targetQ, targetR)) return false;
+   if (!HexUtils.areAdjacent(unit.q, unit.r, targetQ, targetR)) return false;
 
-    var occupied = this.getAllUnits().some(function(u) {
-        return u.active && u !== unit && u.q === targetQ && u.r === targetR;
-    });
-    if (occupied) return false;
+   var occupied = this.getAllUnits().some(function(u) {
+       return u.active && u !== unit && u.q === targetQ && u.r === targetR;
+   });
+   if (occupied) return false;
 
-    // ✅ СОХРАНЯЕМ ПРЕДЫДУЩУЮ ПОЗИЦИЮ
-    this.setLastPosition(unitId, unit.q, unit.r);
+   // Сохраняем предыдущую позицию
+   this.setLastPosition(unitId, unit.q, unit.r);
 
-    // ✅ ВЫЧИСЛЯЕМ НАПРАВЛЕНИЕ И СОХРАНЯЕМ
-    var direction = HexUtils.getDirection(unit.q, unit.r, targetQ, targetR);
-    unit.setDirection(direction);
-    unit.moveTo(targetQ, targetR);
-    // ✅ НЕ ОБНОВЛЯЕМ lastActionTime ДЛЯ ДВИЖЕНИЯ
-    // this.lastActionTime = Date.now(); // УБИРАЕМ!
+   var direction = HexUtils.getDirection(unit.q, unit.r, targetQ, targetR);
+   unit.setDirection(direction);
+   unit.moveTo(targetQ, targetR);
+   
+   // ✅ ОБНОВЛЯЕМ ТОЛЬКО КУЛДАУН ДВИЖЕНИЯ
+   this.lastMoveTime = Date.now();
 
-    console.log('✅ Танк', unitId, 'перемещен на', targetQ, targetR, 'направление:', direction);
-    return true;
+   console.log('✅ Танк', unitId, 'перемещен на', targetQ, targetR, 'направление:', direction);
+   return true;
 };
 
-// ✅ КУЛДАУН ОСТАЕТСЯ ТОЛЬКО ДЛЯ СТРЕЛЬБЫ
+// ✅ ИСПРАВЛЕННЫЙ shootAtCell - ИСПОЛЬЗУЕТ canShoot()
 TankGame.prototype.shootAtCell = function(attackerId, targetQ, targetR) {
-    var attacker = this.getAllUnits().find(function(u) {
-        return u.id === attackerId && u.active;
-    });
-    if (!attacker) {
-        return { success: false, message: 'Танк не найден' };
-    }
+   var attacker = this.getAllUnits().find(function(u) {
+       return u.id === attackerId && u.active;
+   });
+   if (!attacker) {
+       return { success: false, message: 'Танк не найден' };
+   }
 
-    // ✅ КУЛДАУН ДЛЯ СТРЕЛЬБЫ ОСТАЕТСЯ
-    if (this.getRemainingCooldown() > 0) {
-        return { success: false, message: 'Перезарядка' };
-    }
+   // ✅ ПРОВЕРЯЕМ КУЛДАУН СТРЕЛЬБЫ
+   if (!this.canShoot(attacker)) {
+       var remaining = this.getRemainingShootCooldown();
+       return { 
+           success: false, 
+           message: 'Перезарядка: ' + Math.ceil(remaining / 1000) + 'с',
+           cooldown: remaining
+       };
+   }
 
-    var distance = HexUtils.distance(attacker.q, attacker.r, targetQ, targetR);
-    if (distance > attacker.range) {
-        return { success: false, message: 'Слишком далеко' };
-    }
+   var distance = HexUtils.distance(attacker.q, attacker.r, targetQ, targetR);
+   if (distance > attacker.range) {
+       return { success: false, message: 'Слишком далеко' };
+   }
 
-    this.lastActionTime = Date.now();
+   // ✅ ОБНОВЛЯЕМ ТОЛЬКО КУЛДАУН СТРЕЛЬБЫ
+   this.lastShootTime = Date.now();
 
-    var target = this.getAllUnits().find(function(u) {
-        return u.active && u.team !== attacker.team &&
-               u.q === targetQ && u.r === targetR;
-    });
+   var target = this.getAllUnits().find(function(u) {
+       return u.active && u.team !== attacker.team &&
+              u.q === targetQ && u.r === targetR;
+   });
 
-    if (!target) {
-        return {
-            success: true,
-            hit: false,
-            message: 'Промах!',
-            targetQ: targetQ,
-            targetR: targetR,
-            fromQ: attacker.q,
-            fromR: attacker.r,
-            attackerId: attacker.id
-        };
-    }
+   if (!target) {
+       return {
+           success: true,
+           hit: false,
+           message: 'Промах!',
+           targetQ: targetQ,
+           targetR: targetR,
+           fromQ: attacker.q,
+           fromR: attacker.r,
+           attackerId: attacker.id
+       };
+   }
 
-    target.hp -= attacker.damage;
-    var killed = false;
+   target.hp -= attacker.damage;
+   var killed = false;
 
-    if (target.hp <= 0) {
-        target.active = false;
-        killed = true;
-        attacker.kills++;
-        this.effectManager.addSmoke(target.q, target.r, target.name);
-    }
+   if (target.hp <= 0) {
+       target.active = false;
+       killed = true;
+       attacker.kills++;
+       this.effectManager.addSmoke(target.q, target.r, target.name);
+   }
 
-    return {
-        success: true,
-        hit: true,
-        killed: killed,
-        message: killed ? '💀 ' + target.name + ' уничтожен!' :
-                         '💥 Попадание в ' + target.name + '! -' + attacker.damage + ' HP',
-        targetQ: target.q,
-        targetR: target.r,
-        fromQ: attacker.q,
-        fromR: attacker.r,
-        attackerId: attacker.id
-    };
+   return {
+       success: true,
+       hit: true,
+       killed: killed,
+       message: killed ? '💀 ' + target.name + ' уничтожен!' :
+                        '💥 Попадание в ' + target.name + '! -' + attacker.damage + ' HP',
+       targetQ: target.q,
+       targetR: target.r,
+       fromQ: attacker.q,
+       fromR: attacker.r,
+       attackerId: attacker.id
+   };
 };
 
-// ✅ ИСПРАВЛЕННЫЙ botAction
+// ✅ ИСПРАВЛЕННЫЙ botAction - ИСПОЛЬЗУЕТ ИНДИВИДУАЛЬНЫЕ КУЛДАУНЫ
 TankGame.prototype.botAction = function() {
-    var player = this.getFirstPlayer();
-    if (!player || !player.active) return null;
+   var player = this.getFirstPlayer();
+   if (!player || !player.active) return null;
 
-    var enemy = this.enemies[0];
-    if (!enemy || !enemy.active) return null;
+   var enemy = this.enemies[0];
+   if (!enemy || !enemy.active) return null;
 
-    // ✅ КУЛДАУН ДЛЯ БОТА - ТОЖЕ 3 СЕКУНДЫ
-    if (this.getRemainingCooldown() > 0) return null;
+   // ✅ БОТ ПРОВЕРЯЕТ СВОЙ КУЛДАУН СТРЕЛЬБЫ
+   if (!this.canShoot(enemy)) return null;
 
-    var distance = HexUtils.distance(enemy.q, enemy.r, player.q, player.r);
+   var distance = HexUtils.distance(enemy.q, enemy.r, player.q, player.r);
 
-    // ✅ БОТ СТРЕЛЯЕТ ТОЛЬКО ЕСЛИ В РАДИУСЕ
-    if (distance <= enemy.range && Math.random() < 0.4) {
-        return this.shootAtCell(enemy.id, player.q, player.r);
-    }
+   if (distance <= enemy.range && Math.random() < 0.4) {
+       return this.shootAtCell(enemy.id, player.q, player.r);
+   }
 
-    // ✅ БОТ ХОДИТ РЕЖЕ - С ВЕРОЯТНОСТЬЮ 60%
-    if (Math.random() > 0.6) return null;
+   // ✅ БОТ ПРОВЕРЯЕТ СВОЙ КУЛДАУН ДВИЖЕНИЯ
+   if (!this.canMove(enemy)) return null;
+   if (Math.random() > 0.6) return null;
 
-    var neighbors = this.getNeighbors(enemy.q, enemy.r);
-    var valid = neighbors.filter(function(n) {
-        var occupied = this.getAllUnits().some(function(u) {
-            return u.active && u.q === n.q && u.r === n.r;
-        });
-        return !occupied;
-    }.bind(this));
+   var neighbors = this.getNeighbors(enemy.q, enemy.r);
+   var valid = neighbors.filter(function(n) {
+       var occupied = this.getAllUnits().some(function(u) {
+           return u.active && u.q === n.q && u.r === n.r;
+       });
+       return !occupied;
+   }.bind(this));
 
-    if (valid.length > 0) {
-        var target = valid[Math.floor(Math.random() * valid.length)];
-        // ✅ СОХРАНЯЕМ СТАРУЮ ПОЗИЦИЮ ДЛЯ АНИМАЦИИ
-        var fromQ = enemy.q;
-        var fromR = enemy.r;
-        
-        // ✅ ДВИГАЕМ БОТА
-        var moved = this.moveToCell(enemy.id, target.q, target.r);
-        if (moved) {
-            console.log('🤖 Бот двинулся с', fromQ, fromR, 'на', target.q, target.r);
-            // ✅ УСТАНАВЛИВАЕМ КУЛДАУН ДЛЯ БОТА
-            this.lastActionTime = Date.now();
-            return {
-                type: 'move',
-                fromQ: fromQ,
-                fromR: fromR,
-                toQ: target.q,
-                toR: target.r,
-                unitId: enemy.id
-            };
-        }
-    }
+   if (valid.length > 0) {
+       var target = valid[Math.floor(Math.random() * valid.length)];
+       var fromQ = enemy.q;
+       var fromR = enemy.r;
+       
+       var moved = this.moveToCell(enemy.id, target.q, target.r);
+       if (moved) {
+           console.log('🤖 Бот двинулся с', fromQ, fromR, 'на', target.q, target.r);
+           return {
+               type: 'move',
+               fromQ: fromQ,
+               fromR: fromR,
+               toQ: target.q,
+               toR: target.r,
+               unitId: enemy.id
+           };
+       }
+   }
 
-    return null;
+   return null;
 };
 
 // ✅ ОБНОВЛЕННЫЙ getStateForPlayer - ДОБАВЛЯЕТ ИНФОРМАЦИЮ О ПОСЛЕДНЕЙ ПОЗИЦИИ
@@ -319,14 +336,18 @@ TankGame.prototype.getStateForPlayer = function(playerId) {
         myTank: player.toJSON(), // ✅ toJSON() уже включает direction
         enemies: this.enemies.filter(function(e) { return e.active; }).map(function(e) { return e.toJSON(); }),
         cells: this.cells.slice(0),
-        lastActionTime: this.lastActionTime,
-        cooldown: this.cooldown,
+        lastMoveTime: this.lastMoveTime,
+        moveCooldown: this.moveCooldown,
+        lastShootTime: this.lastShootTime,
+        shootCooldown: this.shootCooldown,
         gameOver: this.gameOver,
         winner: this.winner,
-        lastPositions: lastPositions  // ✅ ДОБАВЛЯЕМ
+        lastPositions: lastPositions,  // ✅ ДОБАВЛЯЕМ
+        lastMoves: {} // Пустой объект для совместимости
     };
 };
 
+// ✅ ПРОВЕРКА ПОБЕДИТЕЛЯ
 TankGame.prototype.checkWinner = function() {
    var playerAlive = this.players.some(function(p) { return p.active; });
    var enemyAlive = this.enemies.some(function(e) { return e.active; });

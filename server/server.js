@@ -1,4 +1,4 @@
-// server/server.js
+// server/server.js - ИСПРАВЛЕНИЕ: РАЗДЕЛЬНЫЕ КУЛДАУНЫ И СИНХРОНИЗАЦИЯ
 
 var express = require('express');
 var http = require('http');
@@ -45,36 +45,32 @@ app.use(express.static(publicPath));
 var currentGame = null;
 var botInterval = null;
 
-// ✅ ХРАНИМ ТОЛЬКО ПОСЛЕДНЕЕ ДВИЖЕНИЕ ДЛЯ КАЖДОГО ТАНКА
-var lastMoves = new Map();
+// ✅ ХРАНИЛИЩЕ ДЛЯ ПОДТВЕРЖДЕННЫХ ДВИЖЕНИЙ
+var confirmedMoves = new Map();
 
-// ✅ ФУНКЦИЯ ДЛЯ СОХРАНЕНИЯ ПОСЛЕДНЕГО ДВИЖЕНИЯ
-function setLastMove(unitId, fromQ, fromR, toQ, toR) {
-    lastMoves.set(unitId, {
+// ✅ ФУНКЦИЯ ДЛЯ ПОДТВЕРЖДЕНИЯ ДВИЖЕНИЯ
+function confirmMove(unitId, fromQ, fromR, toQ, toR) {
+    confirmedMoves.set(unitId, {
         fromQ: fromQ,
         fromR: fromR,
         toQ: toQ,
         toR: toR,
-        timestamp: Date.now()
+        timestamp: Date.now(),
+        confirmed: true
     });
 }
 
-// ✅ ФУНКЦИЯ ДЛЯ ПОЛУЧЕНИЯ ПОСЛЕДНЕГО ДВИЖЕНИЯ
-function getLastMove(unitId) {
-    return lastMoves.get(unitId) || null;
+// ✅ ФУНКЦИЯ ДЛЯ ОЧИСТКИ ПОДТВЕРЖДЕННЫХ ДВИЖЕНИЙ
+function clearConfirmedMoves() {
+    confirmedMoves.clear();
 }
 
-// ✅ ФУНКЦИЯ ДЛЯ ОЧИСТКИ ДВИЖЕНИЙ
-function clearLastMoves() {
-    lastMoves.clear();
-}
-
-// ✅ ФУНКЦИЯ ДЛЯ ПОЛУЧЕНИЯ ВСЕХ ПОСЛЕДНИХ ДВИЖЕНИЙ
-function getAllLastMoves() {
+// ✅ ФУНКЦИЯ ДЛЯ ПОЛУЧЕНИЯ ВСЕХ ПОДТВЕРЖДЕННЫХ ДВИЖЕНИЙ
+function getAllConfirmedMoves() {
     var result = {};
-    var keys = lastMoves.keys();
+    var keys = confirmedMoves.keys();
     for (var key of keys) {
-        result[key] = lastMoves.get(key);
+        result[key] = confirmedMoves.get(key);
     }
     return result;
 }
@@ -88,8 +84,8 @@ function broadcastState() {
     
     var state = currentGame.getStateForPlayer(player.id);
     if (state) {
-        // Добавляем последние движения
-        state.lastMoves = getAllLastMoves();
+        // ✅ ДОБАВЛЯЕМ ПОДТВЕРЖДЕННЫЕ ДВИЖЕНИЯ
+        state.confirmedMoves = getAllConfirmedMoves();
         io.emit('gameState', state);
     }
 }
@@ -101,13 +97,13 @@ function createNewGame() {
         botInterval = null;
     }
     
-    // ✅ ОЧИЩАЕМ ПОСЛЕДНИЕ ДВИЖЕНИЯ
-    clearLastMoves();
+    // ✅ ОЧИЩАЕМ ПОДТВЕРЖДЕННЫЕ ДВИЖЕНИЯ
+    clearConfirmedMoves();
     
     currentGame = new TankGame();
     console.log('🎮 Новая игра создана!');
     
-    // ✅ ОБНОВЛЕННЫЙ БОТ-ИНТЕРВАЛ - КАЖДУЮ СЕКУНДУ
+    // ✅ БОТ-ИНТЕРВАЛ С РАЗДЕЛЬНЫМИ КУЛДАУНАМИ
     botInterval = setInterval(function() {
         if (!currentGame) return;
         
@@ -128,28 +124,23 @@ function createNewGame() {
         // Бот делает действие
         var result = currentGame.botAction();
         if (result) {
+            // Если бот выстрелил или двинулся
             io.emit('shootResult', result);
-        }
-        
-        // Проверяем, кто изменил позицию
-        var allUnitsAfter = currentGame.getAllUnits();
-        var hasMovement = false;
-        for (var i = 0; i < allUnitsAfter.length; i++) {
-            var unit = allUnitsAfter[i];
-            var before = positionsBefore[unit.id];
-            if (before) {
-                if (before.q !== unit.q || before.r !== unit.r) {
-                    setLastMove(unit.id, before.q, before.r, unit.q, unit.r);
-                    hasMovement = true;
-                    console.log('📝 Движение:', unit.id, 'с', before.q, before.r, 'на', unit.q, unit.r);
+            
+            // Проверяем, изменилась ли позиция бота
+            var enemy = currentGame.enemies[0];
+            if (enemy && positionsBefore[enemy.id]) {
+                var before = positionsBefore[enemy.id];
+                if (before.q !== enemy.q || before.r !== enemy.r) {
+                    // ✅ ПОДТВЕРЖДАЕМ ДВИЖЕНИЕ БОТА
+                    confirmMove(enemy.id, before.q, before.r, enemy.q, enemy.r);
+                    console.log('🤖 Бот подтвержден:', enemy.id, 'с', before.q, before.r, 'на', enemy.q, enemy.r);
                 }
             }
         }
         
-        // ✅ ОТПРАВЛЯЕМ СОСТОЯНИЕ КАЖДЫЙ РАЗ, КОГДА ЕСТЬ ДВИЖЕНИЕ
-        if (hasMovement) {
-            broadcastState();
-        }
+        // ✅ ОТПРАВЛЯЕМ СОСТОЯНИЕ
+        broadcastState();
         
         if (currentGame.checkWinner()) {
             clearInterval(botInterval);
@@ -159,7 +150,7 @@ function createNewGame() {
                 kills: currentGame.getFirstPlayer() ? currentGame.getFirstPlayer().kills : 0
             });
         }
-    }, 1000); // ✅ КАЖДУЮ СЕКУНДУ
+    }, 1000); // КАЖДУЮ СЕКУНДУ
 }
 
 createNewGame();
@@ -167,60 +158,174 @@ createNewGame();
 io.on('connection', function(socket) {
     console.log('🔌 Клиент подключен:', socket.id);
     
+    // Отправляем начальное состояние
     if (currentGame) {
         var player = currentGame.getFirstPlayer();
         if (player) {
-            // ✅ ОТПРАВЛЯЕМ СОСТОЯНИЕ С ПОЗИЦИЯМИ И ДВИЖЕНИЯМИ
             var state = currentGame.getStateForPlayer(player.id);
             if (state) {
-                // Добавляем последние позиции
-                var allUnits = currentGame.getAllUnits();
-                var lastPositions = {};
-                for (var i = 0; i < allUnits.length; i++) {
-                    var unit = allUnits[i];
-                    var lastPos = currentGame.getLastPosition(unit.id);
-                    if (lastPos) {
-                        lastPositions[unit.id] = lastPos;
-                    }
-                }
-                state.lastPositions = lastPositions;
-                
-                // ✅ ДОБАВЛЯЕМ ПОСЛЕДНИЕ ДВИЖЕНИЯ
-                state.lastMoves = getAllLastMoves();
-                
+                // ✅ ДОБАВЛЯЕМ ПОДТВЕРЖДЕННЫЕ ДВИЖЕНИЯ
+                state.confirmedMoves = getAllConfirmedMoves();
                 socket.emit('gameState', state);
             }
         }
     }
     
-    socket.on('shoot', function(data) {
-        console.log('🔫 Выстрел от', socket.id, 'по', data.q, data.r);
+    // ✅ НОВЫЙ ОБРАБОТЧИК - moveRequest (вместо move)
+    socket.on('moveRequest', function(data) {
+        console.log('🚶 Запрос движения от', socket.id, 'на', data.q, data.r);
         
         if (!currentGame) {
-            socket.emit('error', { message: 'Игра не создана' });
+            socket.emit('moveRejected', { 
+                message: 'Игра не создана',
+                reason: 'no_game'
+            });
             return;
         }
         
         if (currentGame.gameOver) {
-            socket.emit('error', { message: 'Игра окончена' });
+            socket.emit('moveRejected', { 
+                message: 'Игра окончена',
+                reason: 'game_over'
+            });
             return;
         }
         
         var player = currentGame.getFirstPlayer();
         if (!player) {
-            socket.emit('error', { message: 'Игрок не найден' });
+            socket.emit('moveRejected', { 
+                message: 'Игрок не найден',
+                reason: 'no_player'
+            });
             return;
         }
         
         if (!player.active) {
-            socket.emit('error', { message: 'Ваш танк уничтожен' });
+            socket.emit('moveRejected', { 
+                message: 'Ваш танк уничтожен',
+                reason: 'tank_destroyed'
+            });
+            return;
+        }
+        
+        // ✅ ВАЛИДАЦИЯ НА СЕРВЕРЕ
+        var fromQ = player.q;
+        var fromR = player.r;
+        
+        // Проверяем кулдаун движения
+        if (!currentGame.canMove(player)) {
+            var remaining = currentGame.getRemainingMoveCooldown();
+            socket.emit('moveRejected', {
+                message: 'Кулдаун движения: ' + Math.ceil(remaining / 1000) + 'с',
+                reason: 'cooldown',
+                remaining: remaining
+            });
+            return;
+        }
+        
+        // Проверяем смежность
+        if (!HexUtils.areAdjacent(fromQ, fromR, data.q, data.r)) {
+            socket.emit('moveRejected', {
+                message: 'Можно двигаться только на соседнюю клетку',
+                reason: 'not_adjacent'
+            });
+            return;
+        }
+        
+        // Проверяем занятость
+        var occupied = currentGame.getAllUnits().some(function(u) {
+            return u.active && u !== player && u.q === data.q && u.r === data.r;
+        });
+        if (occupied) {
+            socket.emit('moveRejected', {
+                message: 'Клетка занята',
+                reason: 'occupied'
+            });
+            return;
+        }
+        
+        // ✅ ВЫПОЛНЯЕМ ДВИЖЕНИЕ НА СЕРВЕРЕ
+        var moved = currentGame.moveToCell(player.id, data.q, data.r);
+        if (moved) {
+            // ✅ ПОДТВЕРЖДАЕМ ДВИЖЕНИЕ
+            confirmMove(player.id, fromQ, fromR, data.q, data.r);
+            
+            console.log('✅ Движение подтверждено:', player.id, 'с', fromQ, fromR, 'на', data.q, data.r);
+            
+            // ✅ ОТПРАВЛЯЕМ ПОДТВЕРЖДЕНИЕ КЛИЕНТУ
+            socket.emit('moveAccepted', {
+                unitId: player.id,
+                fromQ: fromQ,
+                fromR: fromR,
+                toQ: data.q,
+                toR: data.r,
+                direction: HexUtils.getDirection(fromQ, fromR, data.q, data.r)
+            });
+            
+            // ✅ РАССЫЛАЕМ ОБНОВЛЕННОЕ СОСТОЯНИЕ ВСЕМ
+            broadcastState();
+        } else {
+            socket.emit('moveRejected', {
+                message: 'Неизвестная ошибка',
+                reason: 'unknown'
+            });
+        }
+    });
+    
+    // ✅ ОБРАБОТЧИК ДЛЯ ЗАВЕРШЕНИЯ АНИМАЦИИ
+    socket.on('moveComplete', function(data) {
+        console.log('🎬 Анимация завершена:', data.unitId);
+        
+        if (currentGame) {
+            // Обновляем состояние только если это подтвержденное движение
+            if (confirmedMoves.has(data.unitId)) {
+                var move = confirmedMoves.get(data.unitId);
+                if (move.toQ === data.toQ && move.toR === data.toR) {
+                    // Удаляем из подтвержденных, так как анимация завершена
+                    confirmedMoves.delete(data.unitId);
+                    // Отправляем обновленное состояние
+                    broadcastState();
+                }
+            }
+        }
+    });
+    
+    // ✅ ОБРАБОТЧИК ВЫСТРЕЛА
+    socket.on('shootRequest', function(data) {
+        console.log('🔫 Запрос выстрела от', socket.id, 'по', data.q, data.r);
+        
+        if (!currentGame) {
+            socket.emit('shootRejected', { message: 'Игра не создана' });
+            return;
+        }
+        
+        if (currentGame.gameOver) {
+            socket.emit('shootRejected', { message: 'Игра окончена' });
+            return;
+        }
+        
+        var player = currentGame.getFirstPlayer();
+        if (!player || !player.active) {
+            socket.emit('shootRejected', { message: 'Ваш танк уничтожен' });
+            return;
+        }
+        
+        // ✅ ПРОВЕРЯЕМ КУЛДАУН СТРЕЛЬБЫ
+        if (!currentGame.canShoot(player)) {
+            var remaining = currentGame.getRemainingShootCooldown();
+            socket.emit('shootRejected', {
+                message: 'Перезарядка: ' + Math.ceil(remaining / 1000) + 'с',
+                remaining: remaining
+            });
             return;
         }
         
         var result = currentGame.shootAtCell(player.id, data.q, data.r);
+        
+        // ✅ ОТПРАВЛЯЕМ РЕЗУЛЬТАТ ВСЕМ
         io.emit('shootResult', result);
         
-        // ✅ ОТПРАВЛЯЕМ ОБНОВЛЕННОЕ СОСТОЯНИЕ ПОСЛЕ ВЫСТРЕЛА
+        // ✅ ОБНОВЛЯЕМ СОСТОЯНИЕ
         broadcastState();
         
         if (currentGame.checkWinner()) {
@@ -235,71 +340,22 @@ io.on('connection', function(socket) {
         }
     });
     
+    // ✅ СТАРЫЙ ОБРАБОТЧИК ДЛЯ СОВМЕСТИМОСТИ (shoot)
+    socket.on('shoot', function(data) {
+        // Преобразуем в новый формат
+        socket.emit('shootRequest', data);
+    });
+    
+    // ✅ СТАРЫЙ ОБРАБОТЧИК ДЛЯ СОВМЕСТИМОСТИ (move)
     socket.on('move', function(data) {
-        console.log('🚶 Движение от', socket.id, 'на', data.q, data.r);
-        
-        if (!currentGame) {
-            socket.emit('error', { message: 'Игра не создана' });
-            return;
-        }
-        
-        if (currentGame.gameOver) {
-            socket.emit('error', { message: 'Игра окончена' });
-            return;
-        }
-        
-        var player = currentGame.getFirstPlayer();
-        if (!player) {
-            socket.emit('error', { message: 'Игрок не найден' });
-            return;
-        }
-        
-        if (!player.active) {
-            socket.emit('error', { message: 'Ваш танк уничтожен' });
-            return;
-        }
-        
-        // ✅ СОХРАНЯЕМ ПОЗИЦИЮ ДО ДВИЖЕНИЯ
-        var fromQ = player.q;
-        var fromR = player.r;
-        
-        var moved = currentGame.moveToCell(player.id, data.q, data.r);
-        if (moved) {
-            // ✅ СОХРАНЯЕМ ПОСЛЕДНЕЕ ДВИЖЕНИЕ
-            setLastMove(player.id, fromQ, fromR, data.q, data.r);
-            console.log('📝 Движение игрока в историю:', player.id, 'с', fromQ, fromR, 'на', data.q, data.r);
-            
-            socket.emit('actionAccepted', { type: 'move' });
-            
-            // ✅ ОТПРАВЛЯЕМ ОБНОВЛЕННОЕ СОСТОЯНИЕ ПОСЛЕ ДВИЖЕНИЯ
-            broadcastState();
-        } else {
-            var cooldown = currentGame.getRemainingCooldown();
-            if (cooldown > 0) {
-                socket.emit('error', { 
-                    message: 'Перезарядка: ' + Math.ceil(cooldown / 1000) + ' сек' 
-                });
-            } else {
-                socket.emit('error', { message: 'Нельзя туда двигаться' });
-            }
-        }
+        // Преобразуем в новый формат
+        socket.emit('moveRequest', data);
     });
     
-    // ✅ ОБРАБОТЧИК ЗАВЕРШЕНИЯ ДВИЖЕНИЯ
-    socket.on('moveComplete', function(data) {
-        console.log('🚶 Движение завершено:', data.tankId, 'с', data.fromQ, data.fromR, 'на', data.toQ, data.toR);
-        
-        // Сохраняем последнее движение для синхронизации с другими клиентами
-        if (currentGame) {
-            setLastMove(data.tankId, data.fromQ, data.fromR, data.toQ, data.toR);
-            
-            // Отправляем обновленное состояние всем клиентам
-            broadcastState();
-        }
-    });
-    
+    // ✅ ОБРАБОТЧИК ДЛЯ СБРОСА
     socket.on('reset', function() {
         console.log('🔄 Сброс игры от', socket.id);
+        clearConfirmedMoves();
         createNewGame();
         io.emit('gameReset', { message: 'Новая игра началась!' });
     });

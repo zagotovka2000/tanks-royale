@@ -480,12 +480,10 @@ GameScene.prototype.processLastMoves = function(lastMoves) {
 };
 
 // ============================================
-// updateTanks
+// ✅ ИСПРАВЛЕННЫЙ updateTanks - ГАРАНТИРУЕТ СОЗДАНИЕ СПРАЙТА С ПРАВИЛЬНЫМ СОСТОЯНИЕМ
 // ============================================
 GameScene.prototype.updateTanks = function(state) {
    if (!state || !this.isReady) return;
-   
-   console.log('🔄 updateTanks() START');
    
    var currentTanks = new Map();
    var self = this;
@@ -508,11 +506,13 @@ GameScene.prototype.updateTanks = function(state) {
            var sprite = self.tankSprites.get(id);
            var unit = value.unit;
            
+           // ✅ НЕ ОБНОВЛЯЕМ ВО ВРЕМЯ АНИМАЦИИ
            if (sprite.isAnimating) {
                console.log('⏳ Танк', id, 'анимируется, пропускаем обновление');
                return;
            }
            
+           // ✅ ОБНОВЛЯЕМ ПОЗИЦИЮ ТОЛЬКО ЕСЛИ ИЗМЕНИЛАСЬ
            var currentPos = { q: sprite.unit.q, r: sprite.unit.r };
            if (currentPos.q !== unit.q || currentPos.r !== unit.r) {
                console.log('📍 Обновляем позицию', id, 'с', currentPos.q, currentPos.r, 'на', unit.q, unit.r);
@@ -522,29 +522,71 @@ GameScene.prototype.updateTanks = function(state) {
                sprite.unit.r = unit.r;
                sprite.updatePosition(unit.q, unit.r, unit.direction);
            }
+           
+           // ✅ ОБНОВЛЯЕМ HP
+           if (sprite.unit.hp !== unit.hp) {
+               sprite.unit.hp = unit.hp;
+               sprite.updateHPBar();
+           }
        } else {
-           console.log('🆕 Создаем новый танк:', id);
+           console.log('🆕 Создаем новый танк:', id, 'для игрока?', value.isPlayer);
            var sprite = new TankSprite(self, value.unit, self.hexGrid);
            sprite.create();
-           sprite.updateBarrel();
+           
+           // ✅ ДЛЯ ИГРОКА - УСТАНАВЛИВАЕМ ПРАВИЛЬНОЕ НАПРАВЛЕНИЕ
+           if (value.isPlayer && value.unit.direction) {
+               sprite.unit.direction = value.unit.direction;
+               sprite.currentDirection = value.unit.direction;
+               sprite.updateBarrel();
+           }
+           
            self.tankSprites.set(id, sprite);
+           
+           // ✅ ЕСЛИ ЭТО ИГРОК - ПРОВЕРЯЕМ, НУЖНА ЛИ АНИМАЦИЯ
+           if (value.isPlayer && state.lastMoves && state.lastMoves[id]) {
+               var move = state.lastMoves[id];
+               if (move) {
+                   console.log('🔄 Обнаружено движение игрока при создании спрайта:', move);
+                   // Запускаем анимацию
+                   var dir = HexUtils.getDirection(move.fromQ, move.fromR, move.toQ, move.toR);
+                   sprite.unit.direction = dir;
+                   sprite.currentDirection = dir;
+                   sprite.animateMove(
+                       move.fromQ,
+                       move.fromR,
+                       move.toQ,
+                       move.toR,
+                       2000,
+                       function() {
+                           console.log('✅ Анимация при создании завершена');
+                           sprite.updateBarrel();
+                           // Удаляем движение из lastMoves
+                           if (self.gameState && self.gameState.lastMoves) {
+                               delete self.gameState.lastMoves[id];
+                           }
+                       }
+                   );
+               }
+           }
        }
    });
    
-   var existingIds = [];
+   // ✅ УДАЛЯЕМ УНИЧТОЖЕННЫЕ ТАНКИ
    var tankKeys = self.tankSprites.keys();
+   var toRemove = [];
    for (var key of tankKeys) {
        if (!currentTanks.has(key)) {
-           existingIds.push(key);
+           toRemove.push(key);
        }
    }
    
-   for (var i = 0; i < existingIds.length; i++) {
-       var id = existingIds[i];
+   for (var i = 0; i < toRemove.length; i++) {
+       var id = toRemove[i];
        var sprite = self.tankSprites.get(id);
        if (sprite) {
            sprite.destroy();
            self.tankSprites.delete(id);
+           console.log('🗑️ Удален танк:', id);
        }
    }
 };

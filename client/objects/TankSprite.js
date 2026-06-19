@@ -129,7 +129,10 @@ TankSprite.prototype._executeAnimation = function(fromQ, fromR, toQ, toR, durati
        }
    }.bind(this), duration + 1000);
    
+   // ✅ УСТАНАВЛИВАЕМ НАЧАЛЬНУЮ ПОЗИЦИЮ
    this.container.setPosition(this.fromPos.x, this.fromPos.y);
+   
+   // ✅ ЗАПУСКАЕМ ЗВУК (С ПРОВЕРКОЙ)
    this.playMoveSound();
    
    console.log('🎬 Анимация запущена, длительность:', this.animDuration, 'мс');
@@ -153,12 +156,16 @@ TankSprite.prototype.update = function() {
    
    this.container.setPosition(x, y - heightOffset + bounce * 0.3);
    
+   // ✅ ДОБАВЛЯЕМ ЛОГИРОВАНИЕ ДЛЯ ОТЛАДКИ
+   if (this.animationProgress < 0.1) {
+       console.log('🎬 Анимация в процессе:', this.unit.id, Math.round(this.animationProgress * 100) + '%');
+   }
+   
    if (this.animationProgress >= 1) {
        this.isAnimating = false;
        this.container.setPosition(this.toPos.x, this.toPos.y);
        this.stopMoveSound();
        
-       // ✅ ОЧИЩАЕМ ТАЙМАУТ
        if (this.animationTimeout) {
            clearTimeout(this.animationTimeout);
            this.animationTimeout = null;
@@ -167,6 +174,8 @@ TankSprite.prototype.update = function() {
        if (this.unit) {
            this.updateBarrel();
        }
+       
+       console.log('✅ Анимация завершена для:', this.unit.id);
        
        if (this.onComplete) {
            var callback = this.onComplete;
@@ -207,15 +216,185 @@ TankSprite.prototype.destroy = function() {
 // ОСТАЛЬНЫЕ МЕТОДЫ
 // ============================================
 
+// ✅ ИСПРАВЛЕННЫЙ loadMoveSound - СОЗДАЕТ ЗВУК С ПРАВИЛЬНЫМ ПУТЕМ
 TankSprite.prototype.loadMoveSound = function() {
    try {
-       this.moveSound = new Audio('/sounds/move.mp3');
+       // ✅ ПРОВЕРЯЕМ НЕСКОЛЬКО ПУТЕЙ ДЛЯ ЗВУКА
+       var soundPaths = [
+           '/sounds/move.mp3',
+           '/public/sounds/move.mp3',
+           '/client/sounds/move.mp3'
+       ];
+       
+       // Пробуем первый существующий путь
+       var self = this;
+       var testPath = soundPaths[0];
+       
+       // Создаем аудио элемент
+       this.moveSound = new Audio();
        this.moveSound.volume = 0.3;
        this.moveSound.loop = true;
+       
+       // Устанавливаем обработчики загрузки
+       this.moveSound.addEventListener('canplaythrough', function() {
+           self.soundLoaded = true;
+           console.log('✅ Звук загружен:', testPath);
+       });
+       
+       this.moveSound.addEventListener('error', function(e) {
+           console.warn('⚠️ Ошибка загрузки звука:', testPath, e);
+           // Пробуем следующий путь
+           var currentIndex = soundPaths.indexOf(testPath);
+           if (currentIndex < soundPaths.length - 1) {
+               testPath = soundPaths[currentIndex + 1];
+               self.moveSound.src = testPath;
+               self.moveSound.load();
+           } else {
+               self.soundLoaded = false;
+               console.warn('⚠️ Звук не загружен, пробуем создать синтетический');
+               self.createSyntheticSound();
+           }
+       });
+       
+       this.moveSound.src = testPath;
        this.moveSound.load();
-       this.soundLoaded = true;
+       
+       console.log('🔊 Загрузка звука:', testPath);
    } catch (e) {
+       console.warn('⚠️ Ошибка создания звука:', e);
        this.soundLoaded = false;
+       this.createSyntheticSound();
+   }
+};
+
+// ✅ НОВЫЙ МЕТОД - СОЗДАЕТ СИНТЕТИЧЕСКИЙ ЗВУК (ЕСЛИ ФАЙЛ НЕ НАЙДЕН)
+TankSprite.prototype.createSyntheticSound = function() {
+   try {
+       console.log('🔊 Создание синтетического звука');
+       
+       // Создаем звук через Web Audio API
+       var audioContext = new (window.AudioContext || window.webkitAudioContext)();
+       
+       // Создаем буфер для звука
+       var sampleRate = audioContext.sampleRate;
+       var duration = 0.3; // 300ms
+       var buffer = audioContext.createBuffer(1, sampleRate * duration, sampleRate);
+       var data = buffer.getChannelData(0);
+       
+       // Генерируем шум с затуханием (имитация движения)
+       for (var i = 0; i < data.length; i++) {
+           var t = i / sampleRate;
+           var envelope = Math.exp(-t * 10); // Быстрое затухание
+           data[i] = (Math.random() * 2 - 1) * envelope * 0.3;
+       }
+       
+       // Создаем источник
+       var source = audioContext.createBufferSource();
+       source.buffer = buffer;
+       
+       // Создаем узел громкости
+       var gainNode = audioContext.createGain();
+       gainNode.gain.value = 0.3;
+       
+       source.connect(gainNode);
+       gainNode.connect(audioContext.destination);
+       
+       // Сохраняем как звук
+       this.moveSound = {
+           play: function() {
+               try {
+                   // Создаем новый источник для каждого воспроизведения
+                   var newSource = audioContext.createBufferSource();
+                   newSource.buffer = buffer;
+                   var newGain = audioContext.createGain();
+                   newGain.gain.value = 0.3;
+                   newSource.connect(newGain);
+                   newGain.connect(audioContext.destination);
+                   newSource.start();
+                   this._source = newSource;
+                   this._gain = newGain;
+               } catch (e) {
+                   console.warn('⚠️ Ошибка воспроизведения синтетического звука:', e);
+               }
+           }.bind(this),
+           pause: function() {
+               if (this._source) {
+                   try {
+                       this._source.stop();
+                   } catch (e) {}
+                   this._source = null;
+               }
+           }.bind(this),
+           loop: true,
+           volume: 0.3,
+           readyState: 4,
+           _source: null,
+           _gain: null
+       };
+       
+       this.soundLoaded = true;
+       console.log('✅ Синтетический звук создан');
+   } catch (e) {
+       console.warn('⚠️ Не удалось создать синтетический звук:', e);
+       this.soundLoaded = false;
+   }
+};
+
+// ✅ ИСПРАВЛЕННЫЙ playMoveSound - ГАРАНТИРУЕТ ВОСПРОИЗВЕДЕНИЕ
+TankSprite.prototype.playMoveSound = function() {
+   console.log('🔊 Попытка воспроизвести звук для:', this.unit.id);
+   
+   // Если звук не загружен - загружаем
+   if (!this.soundLoaded || !this.moveSound) {
+       this.loadMoveSound();
+       // Даем время на загрузку
+       setTimeout(function() {
+           if (this.moveSound && this.soundLoaded) {
+               this.playMoveSound();
+           }
+       }.bind(this), 100);
+       return;
+   }
+   
+   try {
+       // ✅ ПРОВЕРЯЕМ, ЧТО ЗВУК ЗАГРУЖЕН
+       if (this.moveSound.readyState >= 2) { // HAVE_CURRENT_DATA или больше
+           this.moveSound.currentTime = 0;
+           this.moveSound.loop = true;
+           this.moveSound.volume = 0.3;
+           var playPromise = this.moveSound.play();
+           if (playPromise !== undefined) {
+               playPromise.catch(function(error) {
+                   console.warn('⚠️ Ошибка воспроизведения звука:', error);
+                   // Пробуем перезагрузить звук
+                   this.loadMoveSound();
+               }.bind(this));
+           }
+       } else {
+           // Звук еще не загружен - пробуем позже
+           console.log('⏳ Звук еще не загружен, пробуем позже');
+           setTimeout(function() {
+               if (this.moveSound && !this.isAnimating) {
+                   // Если анимация уже завершилась - не нужно
+               } else {
+                   this.playMoveSound();
+               }
+           }.bind(this), 200);
+       }
+   } catch (e) {
+       console.warn('⚠️ Ошибка при воспроизведении звука:', e);
+       // Создаем звук заново
+       this.loadMoveSound();
+   }
+};
+
+TankSprite.prototype.stopMoveSound = function() {
+   if (this.moveSound) {
+       try {
+           this.moveSound.pause();
+           this.moveSound.currentTime = 0;
+           this.moveSound.loop = false;
+       } catch (e) {}
    }
 };
 
@@ -553,28 +732,6 @@ TankSprite.prototype.getAngle = function(direction) {
        'down-right': Math.PI / 3          // 60° - вниз-вправо
    };
    return map[direction] || 0;
-};
-
-TankSprite.prototype.playMoveSound = function() {
-   if (!this.soundLoaded || !this.moveSound) {
-       this.loadMoveSound();
-       return;
-   }
-   try {
-       this.moveSound.currentTime = 0;
-       this.moveSound.loop = true;
-       this.moveSound.play().catch(function(e) {});
-   } catch (e) {}
-};
-
-TankSprite.prototype.stopMoveSound = function() {
-   if (this.moveSound) {
-       try {
-           this.moveSound.pause();
-           this.moveSound.currentTime = 0;
-           this.moveSound.loop = false;
-       } catch (e) {}
-   }
 };
 
 // Экспорт

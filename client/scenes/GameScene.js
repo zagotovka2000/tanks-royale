@@ -1,4 +1,4 @@
-// client/scenes/GameScene.js - ПОЛНАЯ ВЕРСИЯ С ПОВОРОТОМ БАШНИ
+// client/scenes/GameScene.js - ИСПРАВЛЕННАЯ ВЕРСИЯ
 
 function GameScene() {
    Phaser.Scene.call(this, { key: 'GameScene' });
@@ -35,6 +35,9 @@ function GameScene() {
    // Очередь выстрелов
    this.shootQueue = [];
    this.isProcessingShoot = false;
+   
+   // ✅ ХРАНЕНИЕ АКТИВНЫХ СНАРЯДОВ
+   this.activeProjectiles = [];
 }
 
 GameScene.prototype = Object.create(Phaser.Scene.prototype);
@@ -108,7 +111,7 @@ GameScene.prototype.create = function() {
    this.setupCameraControls();
    
    this.updateTimer = this.time.addEvent({
-       delay: 100,
+       delay: 50,
        callback: this.onUpdate,
        callbackScope: this,
        loop: true
@@ -255,7 +258,8 @@ GameScene.prototype.updateDebugText = function() {
        this.debugText.setText(
            'Гексов: ' + this.hexGrid.hexObjects.size + 
            ' | Танков: ' + this.tankSprites.size +
-           ' | Зум: ' + this.cameraZoom.toFixed(2) + 'x'
+           ' | Зум: ' + this.cameraZoom.toFixed(2) + 'x' +
+           ' | Снарядов: ' + this.activeProjectiles.length
        );
    }
 };
@@ -267,6 +271,7 @@ GameScene.prototype.onUpdate = function() {
     var allAnimationsComplete = true;
     var self = this;
     
+    // Обновляем все спрайты
     this.tankSprites.forEach(function(sprite, key) {
         if (sprite && sprite.update) {
             sprite.update();
@@ -276,6 +281,15 @@ GameScene.prototype.onUpdate = function() {
         }
     });
     
+    // ✅ ОЧИЩАЕМ СТАРЫЕ СНАРЯДЫ
+    this.activeProjectiles = this.activeProjectiles.filter(function(p) {
+        if (p && p.active) {
+            return true;
+        }
+        return false;
+    });
+    
+    // Очищаем старые записи в processedMoves
     if (this.processedMoves.size > 100) {
         var now = Date.now();
         var toRemove = [];
@@ -293,6 +307,7 @@ GameScene.prototype.onUpdate = function() {
         }
     }
     
+    // Обрабатываем последние движения
     if (allAnimationsComplete && this.gameState && !this.moveProcessingLock) {
         if (this.gameState.lastMoves) {
             var hasNewMoves = false;
@@ -562,7 +577,6 @@ GameScene.prototype.handleShootResult = function(result) {
    if (result.fromQ !== undefined && result.fromR !== undefined &&
        result.targetQ !== undefined && result.targetR !== undefined) {
        
-       // Передаем ID стреляющего (используем attackerId или unitId)
        var shooterId = result.attackerId || result.unitId;
        console.log('🔫 Стрелок ID:', shooterId);
        
@@ -587,7 +601,6 @@ GameScene.prototype.handleShootResult = function(result) {
        }
    } else if (result.message) {
        this.showMessage('❌ ' + result.message);
-       // Звук промаха
        this.playMissSound();
    }
    
@@ -603,7 +616,6 @@ GameScene.prototype.handleShootResult = function(result) {
 GameScene.prototype.executeShot = function(result) {
    var self = this;
    
-   // Запускаем анимацию выстрела с ID стрелка
    if (result.fromQ !== undefined && result.fromR !== undefined &&
        result.targetQ !== undefined && result.targetR !== undefined) {
        self.animateShot(result.fromQ, result.fromR, result.targetQ, result.targetR, result.unitId);
@@ -682,13 +694,15 @@ GameScene.prototype.updateGameState = function(state) {
 };
 
 // ============================================
-// ✅ ОБНОВЛЕННАЯ АНИМАЦИЯ ВЫСТРЕЛА - ВСЕГДА ВЫЧИСЛЯЕТ НАПРАВЛЕНИЕ
+// ✅ ИСПРАВЛЕННАЯ АНИМАЦИЯ ВЫСТРЕЛА
 // ============================================
 GameScene.prototype.animateShot = function(fromQ, fromR, toQ, toR, unitId) {
+   // ✅ ПОЛУЧАЕМ КООРДИНАТЫ ТОЛЬКО ОДИН РАЗ
    var from = this.hexGrid.hexToPixel(fromQ, fromR);
    var to = this.hexGrid.hexToPixel(toQ, toR);
    
    console.log('🎯 animateShot от', fromQ, fromR, 'до', toQ, toR);
+   console.log('📐 fromPixel:', from.x, from.y, 'toPixel:', to.x, to.y);
    
    // Находим танк, который стрелял
    var shootingTank = null;
@@ -706,81 +720,181 @@ GameScene.prototype.animateShot = function(fromQ, fromR, toQ, toR, unitId) {
        });
    }
    
-   // ✅ ВСЕГДА ВЫЧИСЛЯЕМ НАПРАВЛЕНИЕ (даже для дальних целей)
+   // ✅ ВЫЧИСЛЯЕМ НАПРАВЛЕНИЕ
    var direction = HexUtils.getDirection(fromQ, fromR, toQ, toR);
-   console.log('🎯 Направление выстрела:', direction, 'от', fromQ, fromR, 'к', toQ, toR);
+   console.log('🎯 Направление выстрела:', direction);
    
    // Если есть танк-стрелок - поворачиваем башню и стреляем
    if (shootingTank) {
        if (typeof shootingTank.rotateTurret === 'function') {
-           // Поворачиваем башню
            shootingTank.rotateTurret(direction, 300, function() {
                console.log('✅ Башня повернута, выполняем выстрел');
                this._executeShot(from, to, shootingTank);
            }.bind(this));
        } else {
-           // Если метода нет - просто стреляем
            console.warn('⚠️ Метод rotateTurret отсутствует, стреляем без поворота');
            this._executeShot(from, to, shootingTank);
        }
    } else {
-       // Если стрелка нет - просто анимация без поворота
        console.warn('⚠️ Стреляющий танк не найден, создаем снаряд');
        this._executeShot(from, to, null);
    }
 };
 
 // ============================================
-// ВЫПОЛНЕНИЕ АНИМАЦИИ ВЫСТРЕЛА
+// ✅ ИСПРАВЛЕННОЕ ВЫПОЛНЕНИЕ АНИМАЦИИ ВЫСТРЕЛА
 // ============================================
 GameScene.prototype._executeShot = function(from, to, shootingTank) {
    console.log('💥 _executeShot от', from.x, from.y, 'до', to.x, to.y);
    
-   // Создаем снаряд
-   var projectile = this.add.circle(from.x, from.y, 6, 0xff6600);
+   // ✅ СОЗДАЕМ СНАРЯД С ЯРКИМ СВЕЧЕНИЕМ
+   var projectile = this.add.circle(from.x, from.y, 8, 0xff6600);
    projectile.setDepth(20);
+   projectile.setStrokeStyle(3, 0xffaa00);
    
-   // Свечение снаряда
-   var glow = this.add.circle(from.x, from.y, 14, 0xff8800, 0.3);
+   // ✅ СВЕЧЕНИЕ
+   var glow = this.add.circle(from.x, from.y, 20, 0xff8800, 0.3);
    glow.setDepth(19);
+   
+   // ✅ ДОБАВЛЯЕМ В АКТИВНЫЕ СНАРЯДЫ
+   var projectileData = {
+       projectile: projectile,
+       glow: glow,
+       active: true
+   };
+   this.activeProjectiles.push(projectileData);
    
    // Анимация отдачи у стреляющего танка
    if (shootingTank && typeof shootingTank.playRecoil === 'function') {
        shootingTank.playRecoil();
    }
    
-   // Медленный снаряд
-   var duration = 700 + Math.random() * 200;
+   // ✅ РАССЧИТЫВАЕМ ДЛИТЕЛЬНОСТЬ ПОЛЕТА
+   var dx = to.x - from.x;
+   var dy = to.y - from.y;
+   var distance = Math.sqrt(dx * dx + dy * dy);
+   var duration = Math.max(300, Math.min(1200, distance * 0.8));
+   
+   console.log('📐 Расстояние:', distance, 'длительность:', duration);
    
    var self = this;
+   
+   // ✅ АНИМАЦИЯ ПОЛЕТА С ТРАЕКТОРИЕЙ
    this.tweens.add({
        targets: projectile,
        x: to.x,
        y: to.y,
        duration: duration,
-       ease: 'Power2',
-       onUpdate: function() {
+       ease: 'Power1',
+       onUpdate: function(tween) {
            glow.x = projectile.x;
            glow.y = projectile.y;
+           
+           // ✅ ДОБАВЛЯЕМ СВЕЧЕНИЕ СЛЕДА
+           if (Math.random() < 0.3) {
+               var trail = self.add.circle(
+                   projectile.x + (Math.random() - 0.5) * 8,
+                   projectile.y + (Math.random() - 0.5) * 8,
+                   3 + Math.random() * 4,
+                   0xff8800,
+                   0.2 + Math.random() * 0.3
+               );
+               trail.setDepth(18);
+               self.tweens.add({
+                   targets: trail,
+                   alpha: 0,
+                   scale: 0.3,
+                   duration: 200,
+                   onComplete: function() {
+                       trail.destroy();
+                   }
+               });
+           }
        },
        onComplete: function() {
+           // ✅ УДАЛЯЕМ ИЗ АКТИВНЫХ
+           var index = self.activeProjectiles.indexOf(projectileData);
+           if (index !== -1) {
+               self.activeProjectiles.splice(index, 1);
+           }
+           
            projectile.destroy();
            glow.destroy();
+           
+           // ✅ ПРОВЕРЯЕМ, ЧТО ВЗРЫВ ПРОИСХОДИТ В ТОЧКЕ ПРИЛЕТА
+           // ИСПОЛЬЗУЕМ КООРДИНАТЫ to.x, to.y - ОНИ ТОЧНЫЕ
+           console.log('💥 Взрыв в точке:', Math.round(to.x), Math.round(to.y));
+           
+           // Взрываем точно по координатам
+           self.addExplosionAt(to.x, to.y);
            
            // Проверяем попадание по координатам
            var hex = self.hexGrid.pixelToHex(to.x, to.y);
            if (hex) {
-               self.checkHitSound(hex.q, hex.r);
-               self.addExplosion(hex.q, hex.r);
-           } else {
-               console.warn('⚠️ Не удалось определить клетку для взрыва');
+               console.log('📍 Клетка взрыва:', hex.q, hex.r);
+               // Проверяем, есть ли там танк
+               var hasTarget = false;
+               self.tankSprites.forEach(function(sprite) {
+                   if (sprite.unit && sprite.unit.active !== false && 
+                       sprite.unit.q === hex.q && sprite.unit.r === hex.r) {
+                       hasTarget = true;
+                       if (typeof sprite.playSound === 'function') {
+                           sprite.playSound('hit');
+                       }
+                   }
+               });
+               
+               if (!hasTarget) {
+                   console.log('🔊 Промах (нет цели)');
+               }
            }
        }
    });
 };
 
 // ============================================
-// checkHitSound (использует TankSprite)
+// ВЗРЫВ ПО КООРДИНАТАМ (БЕЗ ГЕКСА)
+// ============================================
+GameScene.prototype.addExplosionAt = function(x, y) {
+   console.log('💥 Взрыв по координатам:', x, y);
+   
+   for (var i = 0; i < 20; i++) {
+       var angle = Math.random() * Math.PI * 2;
+       var dist = 15 + Math.random() * 45;
+       var particle = this.add.circle(x, y, 2 + Math.random() * 6, 0xff6600);
+       particle.setDepth(15);
+       
+       (function(particle) {
+           this.tweens.add({
+               targets: particle,
+               x: x + Math.cos(angle) * dist,
+               y: y + Math.sin(angle) * dist,
+               alpha: 0,
+               scale: 0.1,
+               duration: 300 + Math.random() * 300,
+               ease: 'Power2',
+               onComplete: function() {
+                   particle.destroy();
+               }
+           });
+       }).call(this, particle);
+   }
+   
+   var flash = this.add.circle(x, y, 30, 0xffffff, 0.7);
+   flash.setDepth(14);
+   this.tweens.add({
+       targets: flash,
+       scale: 0.1,
+       alpha: 0,
+       duration: 150,
+       onComplete: function() {
+           flash.destroy();
+       }
+   });
+};
+
+// ============================================
+// checkHitSound
 // ============================================
 GameScene.prototype.checkHitSound = function(q, r) {
    var hasTarget = false;
@@ -798,9 +912,9 @@ GameScene.prototype.checkHitSound = function(q, r) {
        if (typeof targetSprite.playSound === 'function') {
            targetSprite.playSound('hit');
        }
-       console.log('💥 Звук попадания по танку на', q, r);
+       console.log('💥 Попадание по танку на', q, r);
    } else {
-       console.log('🔊 Звук промаха (нет цели на клетке', q, r, ')');
+       console.log('🔊 Промах (нет цели на клетке', q, r, ')');
    }
 };
 
@@ -809,40 +923,7 @@ GameScene.prototype.checkHitSound = function(q, r) {
 // ============================================
 GameScene.prototype.addExplosion = function(q, r) {
    var pos = this.hexGrid.hexToPixel(q, r);
-   
-   for (var i = 0; i < 15; i++) {
-       var angle = Math.random() * Math.PI * 2;
-       var dist = 20 + Math.random() * 40;
-       var particle = this.add.circle(pos.x, pos.y, 3 + Math.random() * 5, 0xff6600);
-       particle.setDepth(15);
-       
-       (function(particle) {
-           this.tweens.add({
-               targets: particle,
-               x: pos.x + Math.cos(angle) * dist,
-               y: pos.y + Math.sin(angle) * dist,
-               alpha: 0,
-               scale: 0.2,
-               duration: 400 + Math.random() * 200,
-               ease: 'Power2',
-               onComplete: function() {
-                   particle.destroy();
-               }
-           });
-       }).call(this, particle);
-   }
-   
-   var flash = this.add.circle(pos.x, pos.y, 25, 0xffffff, 0.6);
-   flash.setDepth(14);
-   this.tweens.add({
-       targets: flash,
-       scale: 0.1,
-       alpha: 0,
-       duration: 150,
-       onComplete: function() {
-           flash.destroy();
-       }
-   });
+   this.addExplosionAt(pos.x, pos.y);
 };
 
 // ============================================
@@ -915,6 +996,14 @@ GameScene.prototype.shutdown = function() {
        this.botTimer.remove();
        this.botTimer = null;
    }
+   
+   // ✅ УНИЧТОЖАЕМ ВСЕ СНАРЯДЫ
+   for (var i = 0; i < this.activeProjectiles.length; i++) {
+       var p = this.activeProjectiles[i];
+       if (p.projectile) p.projectile.destroy();
+       if (p.glow) p.glow.destroy();
+   }
+   this.activeProjectiles = [];
    
    var self = this;
    this.tankSprites.forEach(function(sprite, key) {

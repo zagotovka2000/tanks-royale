@@ -43,59 +43,75 @@ HexGrid.prototype.hexToPixel = function(q, r) {
    };
 };
 
+// ✅ ИСПРАВЛЕННЫЙ pixelToHex
 HexGrid.prototype.pixelToHex = function(px, py) {
    var camera = this.scene.cameras.main;
    
-   // ✅ ИСПОЛЬЗУЕМ ВСТРОЕННЫЙ МЕТОД PHASER
-   // getWorldPoint учитывает zoom, scrollX, scrollY и все трансформации
+   // ✅ ПРАВИЛЬНОЕ ПРЕОБРАЗОВАНИЕ С УЧЕТОМ ZOOM
    var worldPoint = camera.getWorldPoint(px, py);
    var worldX = worldPoint.x;
    var worldY = worldPoint.y;
    
-   // Координаты относительно центра сетки (без смещения)
+   // Вычитаем смещение сетки
    var gridX = worldX - this.gridOffsetX;
    var gridY = worldY - this.gridOffsetY;
    
-   // Обратное преобразование в координаты гекса
+   // ✅ ИСПРАВЛЕННАЯ ФОРМУЛА КОНВЕРТАЦИИ
    var hexSize = this.hexSize || 45;
    var r = gridY / (hexSize * 1.6);
-   var q = gridX / (hexSize * 1.8) - r / 2;
+   var q = (gridX / (hexSize * 1.8)) - r / 2;
    
-   var roundQ = Math.round(q);
-   var roundR = Math.round(r);
+   // ✅ ПРОВЕРЯЕМ БЛИЖАЙШИЕ ГЕКСЫ (не только округленные)
+   var candidates = [];
+   var offsets = [
+       [0, 0],
+       [1, 0],
+       [-1, 0],
+       [0, 1],
+       [0, -1],
+       [1, -1],
+       [-1, 1],
+       [1, 1],
+       [-1, -1]
+   ];
    
-   // Проверяем существование гекса
-   var cells = this.scene.gameState ? this.scene.gameState.cells : [];
-   if (!cells || cells.length === 0) {
-       return null;
-   }
-   
-   // Ищем точное совпадение
-   for (var i = 0; i < cells.length; i++) {
-       var cell = cells[i];
-       if (cell.q === roundQ && cell.r === roundR) {
-           return cell;
-       }
-   }
-   
-   // Если точного нет - ищем ближайший
-   var best = null;
-   var bestDist = Infinity;
-   
-   for (var i = 0; i < cells.length; i++) {
-       var cell = cells[i];
-       var pos = this.hexToPixel(cell.q, cell.r);
-       var dx = worldX - pos.x;
-       var dy = worldY - pos.y;
-       var dist = dx * dx + dy * dy;
+   for (var i = 0; i < offsets.length; i++) {
+       var testQ = Math.round(q) + offsets[i][0];
+       var testR = Math.round(r) + offsets[i][1];
        
-       if (dist < bestDist) {
-           bestDist = dist;
-           best = cell;
+       // Проверяем, существует ли такая клетка
+       var cellExists = false;
+       var cells = this.scene.gameState ? this.scene.gameState.cells : [];
+       for (var j = 0; j < cells.length; j++) {
+           if (cells[j].q === testQ && cells[j].r === testR) {
+               cellExists = true;
+               break;
+           }
+       }
+       
+       if (cellExists) {
+           var pos = this.hexToPixel(testQ, testR);
+           var dx = worldX - pos.x;
+           var dy = worldY - pos.y;
+           var dist = dx * dx + dy * dy;
+           candidates.push({ q: testQ, r: testR, dist: dist });
        }
    }
    
-   return best;
+   // Сортируем по расстоянию и возвращаем ближайший
+   if (candidates.length === 0) {
+       // Возвращаем просто округленные координаты
+       return { q: Math.round(q), r: Math.round(r) };
+   }
+   
+   candidates.sort(function(a, b) { return a.dist - b.dist; });
+   
+   // ✅ ДОБАВЛЯЕМ ОТЛАДКУ
+   console.log('🔍 pixelToHex: пиксели (', px, py, ') → мир (', Math.round(worldX), Math.round(worldY), 
+       ') → гекс (', candidates[0].q, ',', candidates[0].r, 
+       ') [всего кандидатов:', candidates.length, ']');
+   
+   return { q: candidates[0].q, r: candidates[0].r };
 };
 
 HexGrid.prototype.getHexPoints = function(cx, cy, size) {

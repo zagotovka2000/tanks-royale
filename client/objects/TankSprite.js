@@ -599,7 +599,6 @@ class TankSprite {
    }
 }
 
-// Экспорт
 if (typeof window !== 'undefined') {
    window.TankSprite = TankSprite;
    console.log('✅ TankSprite зарегистрирован в window');

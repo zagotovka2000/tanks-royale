@@ -1,4 +1,4 @@
-/* public/css/styles.css */
+/* public/css/styles.css - ПОЛНОСТЬЮ ИСПРАВЛЕННАЯ ВЕРСИЯ */
 
 * {
    margin: 0;
@@ -43,7 +43,7 @@ body {
 }
 
 #hud .hp {
-   color: #ff6b6b;
+   color: #4caf50;
 }
 
 #hud .kills {
@@ -81,6 +81,11 @@ body {
 #mode-indicator.shoot-mode {
    border-color: #e94560;
    color: #e94560;
+}
+
+#mode-indicator.move-mode {
+   border-color: #44ff44;
+   color: #44ff44;
 }
 
 /* Кнопка выстрела */
@@ -188,25 +193,81 @@ body {
    transform: scale(0.95);
 }
 
-/* Сообщения */
+/* ============================================ */
+/* ✅ ИСПРАВЛЕННЫЕ СООБЩЕНИЯ - БЕЗ КРАСНОГО ЦВЕТА */
+/* ============================================ */
+
+#messages {
+   position: fixed;
+   top: 80px;
+   left: 50%;
+   transform: translateX(-50%);
+   z-index: 100;
+   text-align: center;
+   pointer-events: none;
+   max-width: 80%;
+   display: flex;
+   flex-direction: column;
+   align-items: center;
+   gap: 4px;
+}
+
 #messages .message {
    background: rgba(0, 0, 0, 0.85);
-   backdrop-filter: blur(5px);
-   color: #ffeb3b;
-   padding: 8px 18px;
+   backdrop-filter: blur(8px);
+   color: #ffffff;
+   padding: 8px 20px;
    border-radius: 20px;
-   margin: 5px;
    font-size: 14px;
-   font-weight: bold;
+   font-weight: 500;
    display: inline-block;
-   animation: fadeOutUp 2.5s forwards;
-   border: 1px solid rgba(255, 255, 255, 0.05);
+   animation: fadeOutUp 2.8s forwards;
+   border: 1px solid rgba(255, 255, 255, 0.08);
+   box-shadow: 0 4px 20px rgba(0, 0, 0, 0.5);
+   font-family: 'Segoe UI', Arial, sans-serif;
+   letter-spacing: 0.3px;
+   max-width: 90vw;
+   word-break: break-word;
+}
+
+/* Разные цвета для разных типов сообщений (опционально) */
+#messages .message.error {
+   border-left: 3px solid #e94560;
+   color: #ff6b6b;
+}
+
+#messages .message.success {
+   border-left: 3px solid #4caf50;
+   color: #81c784;
+}
+
+#messages .message.info {
+   border-left: 3px solid #ffd93d;
+   color: #ffd93d;
+}
+
+#messages .message.warning {
+   border-left: 3px solid #ff9800;
+   color: #ffb74d;
 }
 
 @keyframes fadeOutUp {
-   0% { opacity: 1; transform: translateY(0); }
-   70% { opacity: 1; transform: translateY(0); }
-   100% { opacity: 0; transform: translateY(-30px); }
+   0% { 
+       opacity: 0; 
+       transform: translateY(15px) scale(0.95);
+   }
+   10% { 
+       opacity: 1; 
+       transform: translateY(0) scale(1);
+   }
+   70% { 
+       opacity: 1; 
+       transform: translateY(0) scale(1);
+   }
+   100% { 
+       opacity: 0; 
+       transform: translateY(-30px) scale(0.9);
+   }
 }
 
 /* Индикатор цели */
@@ -236,6 +297,49 @@ body {
    font-size: 18px;
    font-weight: bold;
    color: #ffeb3b;
+}
+
+/* Контроллер зума */
+#zoom-controls {
+   position: fixed;
+   bottom: 100px;
+   right: 20px;
+   display: flex;
+   flex-direction: column;
+   gap: 8px;
+   z-index: 10;
+}
+
+#zoom-controls button {
+   width: 50px;
+   height: 50px;
+   border-radius: 25px;
+   border: none;
+   background: rgba(0, 0, 0, 0.7);
+   color: white;
+   font-size: 28px;
+   cursor: pointer;
+   backdrop-filter: blur(5px);
+   transition: transform 0.1s;
+   user-select: none;
+}
+
+#zoom-controls button:hover {
+   transform: scale(1.05);
+   background: rgba(0, 0, 0, 0.85);
+}
+
+#zoom-controls button:active {
+   transform: scale(0.9);
+}
+
+#zoom-controls #zoomValue {
+   text-align: center;
+   color: white;
+   font-size: 12px;
+   font-family: Arial, sans-serif;
+   text-shadow: 0 0 10px rgba(0,0,0,0.8);
+   padding: 2px 0;
 }
 
 /* Адаптив */
@@ -285,5 +389,151 @@ body {
    
    #gameover .card .winner {
        font-size: 24px;
+   }
+
+   #messages {
+       top: 70px;
+       max-width: 90%;
+   }
+
+   #messages .message {
+       font-size: 12px;
+       padding: 6px 14px;
+   }
+
+   #zoom-controls {
+       bottom: 80px;
+       right: 10px;
+   }
+
+   #zoom-controls button {
+       width: 40px;
+       height: 40px;
+       font-size: 22px;
+   }
+}
+
+@media (max-width: 400px) {
+   #hud {
+       font-size: 10px;
+       padding: 4px 10px;
+       gap: 8px;
+       top: 5px;
+   }
+
+   #mode-indicator {
+       font-size: 11px;
+       padding: 4px 12px;
+       bottom: 10px;
+   }
+
+   #shootBtn {
+       width: 55px;
+       height: 55px;
+       font-size: 24px;
+       bottom: 70px;
+       right: 10px;
+   }
+
+   #resetBtn {
+       width: 36px;
+       height: 36px;
+       font-size: 16px;
+       bottom: 10px;
+       right: 10px;
+   }
+
+   #messages .message {
+       font-size: 11px;
+       padding: 4px 12px;
+   }
+}
+/* Переопределяем стили сообщений - БЕЗ КРАСНОГО */
+#messages {
+   position: fixed;
+   top: 80px;
+   left: 50%;
+   transform: translateX(-50%);
+   z-index: 100;
+   text-align: center;
+   pointer-events: none;
+   max-width: 80%;
+   display: flex;
+   flex-direction: column;
+   align-items: center;
+   gap: 6px;
+}
+
+#messages .message {
+   /* ✅ ОСНОВНЫЕ СТИЛИ - БЕЛЫЙ ТЕКСТ, ТЕМНЫЙ ФОН */
+   color: #ffffff !important;
+   background: rgba(0, 0, 0, 0.85) !important;
+   backdrop-filter: blur(8px);
+   padding: 8px 20px;
+   border-radius: 20px;
+   font-size: 14px;
+   font-weight: 500;
+   display: inline-block;
+   border: 1px solid rgba(255, 255, 255, 0.08);
+   box-shadow: 0 4px 20px rgba(0, 0, 0, 0.5);
+   font-family: 'Segoe UI', Arial, sans-serif;
+   letter-spacing: 0.3px;
+   max-width: 90vw;
+   word-break: break-word;
+   animation: messageAppear 0.3s ease;
+}
+
+/* Анимация появления */
+@keyframes messageAppear {
+   from {
+       opacity: 0;
+       transform: translateY(15px) scale(0.95);
+   }
+   to {
+       opacity: 1;
+       transform: translateY(0) scale(1);
+   }
+}
+
+/* Типы сообщений с цветной полоской слева */
+#messages .message.error {
+   border-left: 4px solid #e94560 !important;
+}
+
+#messages .message.success {
+   border-left: 4px solid #4caf50 !important;
+}
+
+#messages .message.warning {
+   border-left: 4px solid #ff9800 !important;
+}
+
+#messages .message.info {
+   border-left: 4px solid #ffd93d !important;
+}
+/* Стили для сообщений - БЕЗ КРАСНОГО ЦВЕТА */
+#messages .message {
+   color: #ffffff !important;
+   background: rgba(0, 0, 0, 0.85) !important;
+   backdrop-filter: blur(8px);
+   padding: 10px 24px;
+   border-radius: 16px;
+   font-size: 16px;
+   font-weight: 500;
+   border: 1px solid rgba(255, 255, 255, 0.1);
+   box-shadow: 0 8px 30px rgba(0, 0, 0, 0.6);
+   font-family: 'Segoe UI', Arial, sans-serif;
+   pointer-events: none;
+   animation: messagePop 0.3s ease;
+}
+
+@keyframes messagePop {
+   from {
+       opacity: 0;
+       transform: scale(0.8) translateY(10px);
+   }
+   to {
+       opacity: 1;
+       transform: scale(1) translateY(0);
    }
 }

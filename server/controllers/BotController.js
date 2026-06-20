@@ -1,4 +1,5 @@
-// server/controllers/BotController.js
+// server/controllers/BotController.js - БОТ ДВИГАЕТСЯ АКТИВНО
+const HexUtils = require('../../client/utils/HexUtils.js');
 
 class BotController {
    constructor(gameService, io) {
@@ -6,21 +7,23 @@ class BotController {
        this.io = io;
        this.botInterval = null;
        this.isRunning = false;
+       this.lastBotAction = 0;
+       this.botDelay = 1500;
    }
    
-   // Запустить бота
    start() {
        if (this.isRunning) return;
        this.isRunning = true;
+       this.lastBotAction = 0;
        
+       // ✅ УМЕНЬШАЕМ ИНТЕРВАЛ ДО 800ms
        this.botInterval = setInterval(() => {
            this.tick();
-       }, 1000);
+       }, 800);
        
-       console.log('🤖 Бот запущен');
+       console.log('🤖 Бот запущен (интервал 800ms)');
    }
    
-   // Остановить бота
    stop() {
        this.isRunning = false;
        if (this.botInterval) {
@@ -30,7 +33,6 @@ class BotController {
        console.log('🤖 Бот остановлен');
    }
    
-   // Тик бота
    tick() {
        const game = this.gameService.getGame();
        if (!game || game.gameOver) {
@@ -43,33 +45,93 @@ class BotController {
        const enemy = game.enemies[0];
        if (!enemy || !enemy.active) return;
        
-       // Сохраняем позицию до действия
-       const beforePos = { q: enemy.q, r: enemy.r };
+       const now = Date.now();
+       if (now - this.lastBotAction < this.botDelay) return;
        
-       // Выполняем действие
-       const result = game.botAction();
+       // ✅ ПЫТАЕМСЯ СНАЧАЛА ДВИНУТЬСЯ
+       let result = null;
        
-       if (result) {
-           // Если бот двинулся - подтверждаем движение
-           if (result.type === 'move') {
+       // ✅ В 70% СЛУЧАЕВ ПЫТАЕМСЯ ДВИНУТЬСЯ
+       if (Math.random() < 0.7) {
+           // Пробуем принудительное движение
+           result = game.forceBotMove ? game.forceBotMove() : null;
+           
+           if (result && result.type === 'move') {
+               this.lastBotAction = now;
                this.gameService.confirmMove(
                    enemy.id,
                    result.fromQ, result.fromR,
                    result.toQ, result.toR
                );
+               this.io.emit('moveAccepted', {
+                   unitId: enemy.id,
+                   fromQ: result.fromQ,
+                   fromR: result.fromR,
+                   toQ: result.toQ,
+                   toR: result.toR,
+                   direction: HexUtils.getDirection(result.fromQ, result.fromR, result.toQ, result.toR)
+               });
+               this.broadcastState();
+               return;
            }
-           
-           // Отправляем результат всем клиентам
-           this.io.emit('shootResult', result);
        }
        
-       // Проверяем победителя
-       if (game.checkWinner()) {
-           this.stop();
-           this.io.emit('gameEnded', {
-               winner: game.winner,
-               kills: game.getFirstPlayer()?.kills || 0
-           });
+       // ✅ ЕСЛИ НЕ ДВИНУЛИСЬ - ПЫТАЕМСЯ СТРЕЛЯТЬ
+       const player = game.getFirstPlayer();
+       if (player && player.active) {
+           // Проверяем, может ли стрелять
+           if (game.canShoot(enemy)) {
+               const shootResult = game.shootAtCell(enemy.id, player.q, player.r);
+               if (shootResult && shootResult.success) {
+                   this.lastBotAction = now;
+                   this.io.emit('shootResult', shootResult);
+                   this.broadcastState();
+                   
+                   if (game.checkWinner()) {
+                       this.stop();
+                       this.io.emit('gameEnded', {
+                           winner: game.winner,
+                           kills: game.getFirstPlayer()?.kills || 0
+                       });
+                   }
+                   return;
+               }
+           }
+       }
+       
+       // ✅ ЕСЛИ НЕ СТРЕЛЯЛИ - ПРОБУЕМ ЕЩЕ РАЗ ДВИНУТЬСЯ (если не двигались выше)
+       if (!result && Math.random() < 0.5) {
+           result = game.forceBotMove ? game.forceBotMove() : null;
+           if (result && result.type === 'move') {
+               this.lastBotAction = now;
+               this.gameService.confirmMove(
+                   enemy.id,
+                   result.fromQ, result.fromR,
+                   result.toQ, result.toR
+               );
+               this.io.emit('moveAccepted', {
+                   unitId: enemy.id,
+                   fromQ: result.fromQ,
+                   fromR: result.fromR,
+                   toQ: result.toQ,
+                   toR: result.toR,
+                   direction: HexUtils.getDirection(result.fromQ, result.fromR, result.toQ, result.toR)
+               });
+               this.broadcastState();
+           }
+       }
+   }
+   
+   broadcastState() {
+       const game = this.gameService.getGame();
+       if (!game) return;
+       
+       const player = game.getFirstPlayer();
+       if (!player) return;
+       
+       const state = this.gameService.getStateForPlayer(player.id);
+       if (state) {
+           this.io.emit('gameState', state);
        }
    }
 }

@@ -1,19 +1,14 @@
-// client/game/ShootLogic.js
-// Логика стрельбы - вынесена в отдельный файл для удобного редактирования
+// client/game/ShootLogic.js - ИСПРАВЛЕННАЯ ВЕРСИЯ
 
 (function() {
    'use strict';
    
-   // Получаем HexUtils для Node.js и браузера
    var HexUtils;
    if (typeof module !== 'undefined' && module.exports) {
-       // Node.js окружение
        HexUtils = require('../utils/HexUtils.js');
    } else if (typeof window !== 'undefined' && window.HexUtils) {
-       // Браузерное окружение
        HexUtils = window.HexUtils;
    } else {
-       // Fallback - пытаемся загрузить
        console.warn('⚠️ HexUtils не найден, создаем базовую версию');
        HexUtils = {
            distance: function(q1, r1, q2, r2) {
@@ -24,38 +19,23 @@
        };
    }
    
-   /**
-    * Класс для управления логикой стрельбы
-    * Все параметры и вычисления вынесены сюда
-    */
    function ShootLogic() {
-       // Настройки стрельбы
        this.config = {
-           // Для игрока - без ограничений по дальности
            playerMaxRange: Infinity,
-           // Для врага - ограничение 6 гексов
            enemyMaxRange: 6,
-           // Базовый урон
            baseDamage: 30,
-           // Шанс критического попадания (для врага)
            enemyCritChance: 0.15,
-           // Множитель критического урона
            critMultiplier: 1.5,
        };
        
-       // Сохраняем ссылку на HexUtils
        this.HexUtils = HexUtils;
    }
 
-   /**
-    * Проверка, может ли юнит стрелять по цели
-    */
    ShootLogic.prototype.canShootAt = function(attacker, targetQ, targetR, allUnits) {
        if (!attacker || !attacker.active) {
            return { canShoot: false, reason: 'Атакующий неактивен' };
        }
        
-       // Проверка дальности
        var distance = this.HexUtils.distance(attacker.q, attacker.r, targetQ, targetR);
        var maxRange = this.getMaxRange(attacker);
        
@@ -68,7 +48,6 @@
            };
        }
        
-       // Проверка, есть ли цель на этой клетке
        var target = this.getTargetAt(allUnits, targetQ, targetR, attacker.team);
        
        return {
@@ -79,9 +58,6 @@
        };
    };
 
-   /**
-    * Получение максимальной дальности для юнита
-    */
    ShootLogic.prototype.getMaxRange = function(unit) {
        if (unit.isPlayer) {
            return this.config.playerMaxRange;
@@ -90,9 +66,6 @@
        }
    };
 
-   /**
-    * Поиск цели на клетке
-    */
    ShootLogic.prototype.getTargetAt = function(allUnits, q, r, team) {
        for (var i = 0; i < allUnits.length; i++) {
            var unit = allUnits[i];
@@ -103,11 +76,7 @@
        return null;
    };
 
-   /**
-    * Выполнение выстрела
-    */
    ShootLogic.prototype.executeShoot = function(attacker, targetQ, targetR, allUnits) {
-       // Проверяем возможность стрельбы
        var check = this.canShootAt(attacker, targetQ, targetR, allUnits);
        
        if (!check.canShoot) {
@@ -122,7 +91,6 @@
        var target = check.target;
        var isPlayer = attacker.isPlayer;
        
-       // Если цели нет - промах
        if (!target) {
            return {
                success: true,
@@ -136,11 +104,9 @@
            };
        }
        
-       // Расчет урона
        var damage = this.calculateDamage(attacker, target);
        var isCritical = false;
        
-       // Для врага - шанс крита
        if (!isPlayer) {
            if (Math.random() < this.config.enemyCritChance) {
                damage = Math.round(damage * this.config.critMultiplier);
@@ -148,7 +114,6 @@
            }
        }
        
-       // Наносим урон
        target.hp -= damage;
        var killed = false;
        var message = '';
@@ -184,32 +149,20 @@
        };
    };
 
-   /**
-    * Расчет урона с учетом брони и модификаторов
-    */
    ShootLogic.prototype.calculateDamage = function(attacker, target) {
        var baseDamage = attacker.damage || this.config.baseDamage;
        
-       // Модификаторы для игрока (можно добавить позже)
        if (attacker.isPlayer) {
-           // Игрок наносит полный урон
            return baseDamage;
        }
        
-       // Для врага - немного меньше урона
        return Math.round(baseDamage * 0.8);
    };
 
-   /**
-    * Проверка, может ли игрок стрелять на любое расстояние
-    */
    ShootLogic.prototype.canPlayerShootAnywhere = function() {
        return this.config.playerMaxRange === Infinity;
    };
 
-   /**
-    * Получить конфигурацию стрельбы
-    */
    ShootLogic.prototype.getConfig = function() {
        return {
            playerMaxRange: this.config.playerMaxRange === Infinity ? '∞' : this.config.playerMaxRange,
@@ -220,9 +173,6 @@
        };
    };
 
-   /**
-    * Обновить конфигурацию
-    */
    ShootLogic.prototype.updateConfig = function(newConfig) {
        for (var key in newConfig) {
            if (newConfig.hasOwnProperty(key) && this.config.hasOwnProperty(key)) {
@@ -231,7 +181,6 @@
        }
    };
 
-   // Экспорт
    if (typeof window !== 'undefined') {
        window.ShootLogic = ShootLogic;
    }

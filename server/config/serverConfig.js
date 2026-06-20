@@ -1,4 +1,5 @@
-// server/config/serverConfig.js - РАСШИРЕННАЯ ВЕРСИЯ
+// server/config/serverConfig.js - ПОЛНОСТЬЮ ИСПРАВЛЕННАЯ ВЕРСИЯ
+
 const path = require('path');
 
 module.exports = {
@@ -12,7 +13,14 @@ module.exports = {
         assets: path.join(__dirname, '..', '..', 'public', 'assets')
     },
     
-    SOCKET: { cors: { origin: '*' }, transports: ['websocket', 'polling'] },
+    SOCKET: {
+        cors: {
+            origin: '*',
+            methods: ['GET', 'POST']
+        },
+        transports: ['websocket', 'polling'],
+        allowEIO3: true
+    },
     
     GAME: {
         mapRadius: 10,
@@ -21,5 +29,10 @@ module.exports = {
         botInterval: 1000,
         maxPlayers: 2,
         maxEnemies: 1
+    },
+    
+    LOGGING: {
+        level: process.env.LOG_LEVEL || 'info',
+        prettyPrint: true
     }
 };

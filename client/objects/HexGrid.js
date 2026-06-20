@@ -1,408 +1,348 @@
-// client/objects/HexGrid.js
+// client/objects/HexGrid.js - ПОЛНОСТЬЮ ИСПРАВЛЕННАЯ ВЕРСИЯ
 
-function HexGrid(scene, hexSize) {
-   this.scene = scene;
-   this.hexSize = hexSize || 45;
-   this.graphics = null;
-   this.hexObjects = new Map();
-   this.gridOffsetX = 0;
-   this.gridOffsetY = 0;
-   this.debugMarkers = [];
-   this.hexContainer = null;
-   this.currentHighlightKey = null;
-}
+class HexGrid {
+   constructor(scene, hexSize) {
+       this.scene = scene;
+       this.hexSize = hexSize || 45;
+       this.graphics = null;
+       this.hexObjects = new Map();
+       this.gridOffsetX = 0;
+       this.gridOffsetY = 0;
+       this.debugMarkers = [];
+       this.hexContainer = null;
+       this.currentHighlightKey = null;
+   }
 
-HexGrid.prototype.init = function() {
-   var width = this.scene.cameras.main.width;
-   var height = this.scene.cameras.main.height;
-   
-   this.gridOffsetX = width / 2;
-   this.gridOffsetY = height / 2;
-   
-   console.log('📐 HexGrid.init() - Размеры:', width, 'x', height);
-   console.log('📐 Смещение сетки:', this.gridOffsetX, this.gridOffsetY);
-   
-   this.hexContainer = this.scene.add.container(0, 0);
-   this.hexContainer.setDepth(0);
-   
-   return this;
-};
-
-HexGrid.prototype.hexToPixel = function(q, r) {
-   var hexSize = this.hexSize || 45;
-   
-   var x = (q + r / 2) * hexSize * 1.8;
-   var y = r * hexSize * 1.6;
-   
-   var offsetX = this.gridOffsetX || 0;
-   var offsetY = this.gridOffsetY || 0;
-   
-   return { 
-       x: x + offsetX, 
-       y: y + offsetY 
-   };
-};
-
-// ✅ ИСПРАВЛЕННЫЙ pixelToHex
-HexGrid.prototype.pixelToHex = function(px, py) {
-   var camera = this.scene.cameras.main;
-   
-   // ✅ ПРАВИЛЬНОЕ ПРЕОБРАЗОВАНИЕ С УЧЕТОМ ZOOM
-   var worldPoint = camera.getWorldPoint(px, py);
-   var worldX = worldPoint.x;
-   var worldY = worldPoint.y;
-   
-   // Вычитаем смещение сетки
-   var gridX = worldX - this.gridOffsetX;
-   var gridY = worldY - this.gridOffsetY;
-   
-   // ✅ ИСПРАВЛЕННАЯ ФОРМУЛА КОНВЕРТАЦИИ
-   var hexSize = this.hexSize || 45;
-   var r = gridY / (hexSize * 1.6);
-   var q = (gridX / (hexSize * 1.8)) - r / 2;
-   
-   // ✅ ПРОВЕРЯЕМ БЛИЖАЙШИЕ ГЕКСЫ (не только округленные)
-   var candidates = [];
-   var offsets = [
-       [0, 0],
-       [1, 0],
-       [-1, 0],
-       [0, 1],
-       [0, -1],
-       [1, -1],
-       [-1, 1],
-       [1, 1],
-       [-1, -1]
-   ];
-   
-   for (var i = 0; i < offsets.length; i++) {
-       var testQ = Math.round(q) + offsets[i][0];
-       var testR = Math.round(r) + offsets[i][1];
+   init() {
+       const width = this.scene.cameras.main.width;
+       const height = this.scene.cameras.main.height;
        
-       // Проверяем, существует ли такая клетка
-       var cellExists = false;
-       var cells = this.scene.gameState ? this.scene.gameState.cells : [];
-       for (var j = 0; j < cells.length; j++) {
-           if (cells[j].q === testQ && cells[j].r === testR) {
-               cellExists = true;
-               break;
+       this.gridOffsetX = width / 2;
+       this.gridOffsetY = height / 2;
+       
+       console.log('📐 HexGrid.init() - Размеры:', width, 'x', height);
+       console.log('📐 Смещение сетки:', this.gridOffsetX, this.gridOffsetY);
+       
+       this.hexContainer = this.scene.add.container(0, 0);
+       this.hexContainer.setDepth(0);
+       
+       return this;
+   }
+
+   hexToPixel(q, r) {
+       const hexSize = this.hexSize || 45;
+       
+       const x = (q + r / 2) * hexSize * 1.8;
+       const y = r * hexSize * 1.6;
+       
+       const offsetX = this.gridOffsetX || 0;
+       const offsetY = this.gridOffsetY || 0;
+       
+       return { 
+           x: x + offsetX, 
+           y: y + offsetY 
+       };
+   }
+
+   // ✅ ИСПРАВЛЕННЫЙ pixelToHex С УЧЕТОМ ЗУМА
+   pixelToHex(px, py) {
+       const camera = this.scene.cameras.main;
+       const zoom = camera.zoom;
+       
+       // Мировые координаты с учетом зума
+       const worldX = (px - camera.width / 2) / zoom + camera.scrollX + camera.width / 2;
+       const worldY = (py - camera.height / 2) / zoom + camera.scrollY + camera.height / 2;
+       
+       const gridX = worldX - this.gridOffsetX;
+       const gridY = worldY - this.gridOffsetY;
+       
+       const hexSize = this.hexSize || 45;
+       const r = gridY / (hexSize * 1.6);
+       const q = (gridX / (hexSize * 1.8)) - r / 2;
+       
+       // Поиск ближайшей валидной клетки
+       const candidates = [];
+       const offsets = [
+           [0, 0], [1, 0], [-1, 0], 
+           [0, 1], [0, -1], [1, -1], [-1, 1]
+       ];
+       
+       const cells = this.scene.gameState ? this.scene.gameState.cells : [];
+       
+       for (const offset of offsets) {
+           const testQ = Math.round(q) + offset[0];
+           const testR = Math.round(r) + offset[1];
+           
+           const cellExists = cells.some(c => c.q === testQ && c.r === testR);
+           
+           if (cellExists) {
+               const pos = this.hexToPixel(testQ, testR);
+               const dx = worldX - pos.x;
+               const dy = worldY - pos.y;
+               candidates.push({ q: testQ, r: testR, dist: dx * dx + dy * dy });
            }
        }
        
-       if (cellExists) {
-           var pos = this.hexToPixel(testQ, testR);
-           var dx = worldX - pos.x;
-           var dy = worldY - pos.y;
-           var dist = dx * dx + dy * dy;
-           candidates.push({ q: testQ, r: testR, dist: dist });
+       if (candidates.length === 0) {
+           return { q: Math.round(q), r: Math.round(r) };
+       }
+       
+       candidates.sort((a, b) => a.dist - b.dist);
+       
+       return { q: candidates[0].q, r: candidates[0].r };
+   }
+
+   getHexPoints(cx, cy, size) {
+       const points = [];
+       for (let i = 0; i < 6; i++) {
+           const angle = Math.PI / 180 * (60 * i - 30);
+           points.push({
+               x: cx + size * Math.cos(angle),
+               y: cy + size * Math.sin(angle)
+           });
+       }
+       return points;
+   }
+
+   drawStar(graphics, cx, cy, spikes, outerRadius, innerRadius) {
+       let rot = -Math.PI / 2;
+       const step = Math.PI / spikes;
+       graphics.beginPath();
+       for (let i = 0; i < spikes * 2; i++) {
+           const radius = i % 2 === 0 ? outerRadius : innerRadius;
+           const x = cx + Math.cos(rot) * radius;
+           const y = cy + Math.sin(rot) * radius;
+           if (i === 0) graphics.moveTo(x, y);
+           else graphics.lineTo(x, y);
+           rot += step;
+       }
+       graphics.closePath();
+       graphics.fillPath();
+   }
+
+   drawHexWithEffect(g, cx, cy, size, color, isBase) {
+       const points = this.getHexPoints(cx, cy, size);
+       
+       g.fillStyle(color, 1);
+       g.beginPath();
+       for (let i = 0; i < points.length; i++) {
+           if (i === 0) g.moveTo(points[i].x, points[i].y);
+           else g.lineTo(points[i].x, points[i].y);
+       }
+       g.closePath();
+       g.fillPath();
+       
+       g.lineStyle(2, 0x88ccff, 0.8);
+       g.beginPath();
+       for (let i = 0; i < points.length; i++) {
+           if (i === 0) g.moveTo(points[i].x, points[i].y);
+           else g.lineTo(points[i].x, points[i].y);
+       }
+       g.closePath();
+       g.strokePath();
+       
+       g.lineStyle(1, 0x000000, 0.15);
+       const innerPoints = points.map(p => ({
+           x: p.x * 0.92, 
+           y: p.y * 0.92
+       }));
+       g.beginPath();
+       for (let i = 0; i < innerPoints.length; i++) {
+           if (i === 0) g.moveTo(innerPoints[i].x, innerPoints[i].y);
+           else g.lineTo(innerPoints[i].x, innerPoints[i].y);
+       }
+       g.closePath();
+       g.strokePath();
+       
+       if (isBase) {
+           g.fillStyle(0xffd700, 0.2);
+           g.fillCircle(cx, cy, size * 1.2);
+           g.fillStyle(0xffd700, 0.95);
+           this.drawStar(g, cx, cy, 5, 14, 7);
+           g.fillStyle(0xffffff, 0.4);
+           g.fillCircle(cx - 3, cy - 4, 3);
        }
    }
-   
-   // Сортируем по расстоянию и возвращаем ближайший
-   if (candidates.length === 0) {
-       // Возвращаем просто округленные координаты
-       return { q: Math.round(q), r: Math.round(r) };
-   }
-   
-   candidates.sort(function(a, b) { return a.dist - b.dist; });
-   
-   // ✅ ДОБАВЛЯЕМ ОТЛАДКУ
-   console.log('🔍 pixelToHex: пиксели (', px, py, ') → мир (', Math.round(worldX), Math.round(worldY), 
-       ') → гекс (', candidates[0].q, ',', candidates[0].r, 
-       ') [всего кандидатов:', candidates.length, ']');
-   
-   return { q: candidates[0].q, r: candidates[0].r };
-};
 
-HexGrid.prototype.getHexPoints = function(cx, cy, size) {
-   var points = [];
-   for (var i = 0; i < 6; i++) {
-       var angle = Math.PI / 180 * (60 * i - 30);
-       points.push({
-           x: cx + size * Math.cos(angle),
-           y: cy + size * Math.sin(angle)
-       });
-   }
-   return points;
-};
-
-HexGrid.prototype.drawStar = function(graphics, cx, cy, spikes, outerRadius, innerRadius) {
-   var rot = -Math.PI / 2;
-   var step = Math.PI / spikes;
-   graphics.beginPath();
-   for (var i = 0; i < spikes * 2; i++) {
-       var radius = i % 2 === 0 ? outerRadius : innerRadius;
-       var x = cx + Math.cos(rot) * radius;
-       var y = cy + Math.sin(rot) * radius;
-       if (i === 0) graphics.moveTo(x, y);
-       else graphics.lineTo(x, y);
-       rot += step;
-   }
-   graphics.closePath();
-   graphics.fillPath();
-};
-
-HexGrid.prototype.drawHexWithEffect = function(g, cx, cy, size, color, isBase) {
-   var points = this.getHexPoints(cx, cy, size);
-   
-   g.fillStyle(color, 1);
-   g.beginPath();
-   for (var i = 0; i < points.length; i++) {
-       if (i === 0) g.moveTo(points[i].x, points[i].y);
-       else g.lineTo(points[i].x, points[i].y);
-   }
-   g.closePath();
-   g.fillPath();
-   
-   g.lineStyle(2, 0x88ccff, 0.8);
-   g.beginPath();
-   for (var i = 0; i < points.length; i++) {
-       if (i === 0) g.moveTo(points[i].x, points[i].y);
-       else g.lineTo(points[i].x, points[i].y);
-   }
-   g.closePath();
-   g.strokePath();
-   
-   g.lineStyle(1, 0x000000, 0.15);
-   var innerPoints = points.map(function(p) {
-       return { x: p.x * 0.92, y: p.y * 0.92 };
-   });
-   g.beginPath();
-   for (var i = 0; i < innerPoints.length; i++) {
-       if (i === 0) g.moveTo(innerPoints[i].x, innerPoints[i].y);
-       else g.lineTo(innerPoints[i].x, innerPoints[i].y);
-   }
-   g.closePath();
-   g.strokePath();
-   
-   if (isBase) {
-       g.fillStyle(0xffd700, 0.2);
-       g.fillCircle(cx, cy, size * 1.2);
-       g.fillStyle(0xffd700, 0.95);
-       this.drawStar(g, cx, cy, 5, 14, 7);
-       g.fillStyle(0xffffff, 0.4);
-       g.fillCircle(cx - 3, cy - 4, 3);
-   }
-};
-
-HexGrid.prototype.drawMap = function(cells) {
-   if (!cells || cells.length === 0) {
-       console.warn('⚠️ Нет клеток для отрисовки');
-       return;
-   }
-   
-   var width = this.scene.cameras.main.width;
-   var height = this.scene.cameras.main.height;
-   this.gridOffsetX = width / 2;
-   this.gridOffsetY = height / 2;
-   
-   if (this.hexContainer) {
-       this.hexContainer.destroy();
-   }
-   this.hexContainer = this.scene.add.container(0, 0);
-   this.hexContainer.setDepth(0);
-   
-   this.hexObjects.clear();
-   this.currentHighlightKey = null;
-   
-   var colors = {
-       plains: 0x4a8c3f,
-       base: 0xc9a03d
-   };
-   
-   var drawn = 0;
-   
-   for (var i = 0; i < cells.length; i++) {
-       var cell = cells[i];
-       var pos = this.hexToPixel(cell.q, cell.r);
-       var color = cell.terrain === 'base' ? colors.base : colors.plains;
-       var isBase = cell.terrain === 'base';
+   drawMap(cells) {
+       if (!cells || cells.length === 0) {
+           console.warn('⚠️ Нет клеток для отрисовки');
+           return;
+       }
        
-       var g = this.scene.add.graphics();
-       this.drawHexWithEffect(g, 0, 0, this.hexSize, color, isBase);
-       g.setPosition(pos.x, pos.y);
-       g.setDepth(0);
+       const width = this.scene.cameras.main.width;
+       const height = this.scene.cameras.main.height;
+       this.gridOffsetX = width / 2;
+       this.gridOffsetY = height / 2;
        
-       this.hexContainer.add(g);
-       this.hexObjects.set(cell.q + ',' + cell.r, g);
-       drawn++;
-   }
-   
-   this.addCenterMarker();
-};
-
-HexGrid.prototype.addCenterMarker = function() {
-   for (var i = 0; i < this.debugMarkers.length; i++) {
-       var marker = this.debugMarkers[i];
-       if (marker && marker.destroy) marker.destroy();
-   }
-   this.debugMarkers = [];
-   
-   var pos = this.hexToPixel(0, 0);
-   
-   var circle = this.scene.add.circle(pos.x, pos.y, 20, 0xff0000);
-   circle.setDepth(100);
-   circle.setStrokeStyle(3, 0xffffff);
-   this.debugMarkers.push(circle);
-   
-   var text = this.scene.add.text(pos.x, pos.y - 30, 'ЦЕНТР КАРТЫ', {
-       fontSize: '14px',
-       color: '#ffffff',
-       backgroundColor: '#000000',
-       padding: { x: 6, y: 3 },
-       fontStyle: 'bold'
-   });
-   text.setOrigin(0.5);
-   text.setDepth(100);
-   this.debugMarkers.push(text);
-   
-   var line1 = this.scene.add.line(
-       pos.x - 15, pos.y,
-       pos.x + 15, pos.y,
-       0xffffff
-   );
-   line1.setDepth(100);
-   line1.setStrokeStyle(2, 0xffffff);
-   this.debugMarkers.push(line1);
-   
-   var line2 = this.scene.add.line(
-       pos.x, pos.y - 15,
-       pos.x, pos.y + 15,
-       0xffffff
-   );
-   line2.setDepth(100);
-   line2.setStrokeStyle(2, 0xffffff);
-   this.debugMarkers.push(line2);
-};
-
-HexGrid.prototype.highlightHex = function(q, r, color) {
-   var key = q + ',' + r;
-   var highlightKey = 'highlight_' + key;
-   
-   if (this.currentHighlightKey === highlightKey) {
-       this.clearHighlight();
+       if (this.hexContainer) {
+           this.hexContainer.destroy();
+       }
+       this.hexContainer = this.scene.add.container(0, 0);
+       this.hexContainer.setDepth(0);
+       
+       this.hexObjects.clear();
        this.currentHighlightKey = null;
-       return null;
+       
+       const colors = {
+           plains: 0x4a8c3f,
+           base: 0xc9a03d
+       };
+       
+       for (const cell of cells) {
+           const pos = this.hexToPixel(cell.q, cell.r);
+           const color = cell.terrain === 'base' ? colors.base : colors.plains;
+           const isBase = cell.terrain === 'base';
+           
+           const g = this.scene.add.graphics();
+           this.drawHexWithEffect(g, 0, 0, this.hexSize, color, isBase);
+           g.setPosition(pos.x, pos.y);
+           g.setDepth(0);
+           
+           this.hexContainer.add(g);
+           this.hexObjects.set(cell.q + ',' + cell.r, g);
+       }
+       
+       this.addCenterMarker();
    }
-   
-   // Не очищаем все подсветки при добавлении новой
-   // this.clearHighlight(); - УБРАНО!
-   
-   var pos = this.hexToPixel(q, r);
-   
-   var g = this.scene.add.graphics();
-   var points = this.getHexPoints(0, 0, this.hexSize + 3);
-   
-   g.fillStyle(color || 0xffeb3b, 0.3);
-   g.beginPath();
-   for (var i = 0; i < points.length; i++) {
-       if (i === 0) g.moveTo(points[i].x, points[i].y);
-       else g.lineTo(points[i].x, points[i].y);
-   }
-   g.closePath();
-   g.fillPath();
-   
-   g.lineStyle(4, color || 0xffeb3b, 1);
-   g.beginPath();
-   for (var i = 0; i < points.length; i++) {
-       if (i === 0) g.moveTo(points[i].x, points[i].y);
-       else g.lineTo(points[i].x, points[i].y);
-   }
-   g.closePath();
-   g.strokePath();
-   
-   g.fillStyle(color || 0xffeb3b, 0.1);
-   g.fillCircle(0, 0, this.hexSize * 1.5);
-   
-   g.setPosition(pos.x, pos.y);
-   g.setDepth(2);
-   
-   if (this.hexContainer) {
-       this.hexContainer.add(g);
-   }
-   
-   this.hexObjects.set(highlightKey, g);
-   this.currentHighlightKey = highlightKey;
-   
-   return g;
-};
 
-// ✅ ОБНОВЛЕННЫЙ clearHighlight С ЛОГИРОВАНИЕМ
-HexGrid.prototype.clearHighlight = function() {
-    console.log('🧹 clearHighlight() - удаляем все подсветки');
-    var toRemove = [];
-    for (var key of this.hexObjects.keys()) {
-        if (key.startsWith('highlight_')) {
-            var obj = this.hexObjects.get(key);
-            if (obj && obj.destroy) {
-                obj.destroy();
-                console.log('🗑️ Удалена подсветка:', key);
-            }
-            toRemove.push(key);
-        }
-    }
-    for (var i = 0; i < toRemove.length; i++) {
-        this.hexObjects.delete(toRemove[i]);
-    }
-    this.currentHighlightKey = null;
-};
-
-// ✅ ОБНОВЛЕННЫЙ highlightMoveArea - РАЗНЫЕ ЦВЕТА
-HexGrid.prototype.highlightMoveArea = function(q, r, validNeighbors) {
-    console.log('🔆 highlightMoveArea() - центр:', q, r, 'соседи:', validNeighbors ? validNeighbors.length : 0);
-    
-    // ✅ СНАЧАЛА УДАЛЯЕМ ВСЕ СТАРЫЕ ПОДСВЕТКИ
-    this.clearHighlight();
-    
-    // ✅ ПОДСВЕЧИВАЕМ ЦЕНТР (свой танк) - ЖЕЛТЫЙ
-    this.highlightHex(q, r, 0xffdd44);
-    
-    // ✅ ПОДСВЕЧИВАЕМ ВСЕХ СОСЕДЕЙ - ЗЕЛЕНЫЙ
-    if (validNeighbors && validNeighbors.length > 0) {
-        for (var i = 0; i < validNeighbors.length; i++) {
-            var n = validNeighbors[i];
-            console.log('🔆 Подсвечиваем соседа:', n.q, n.r);
-            this.highlightHex(n.q, n.r, 0x44ff44);
-        }
-    } else {
-        console.warn('⚠️ Нет соседей для подсветки');
-    }
-};
-
-HexGrid.prototype.clearMoveHighlight = function() {
-   this.clearHighlight();
-};
-
-HexGrid.prototype.destroy = function() {
-   for (var key of this.hexObjects.keys()) {
-       var obj = this.hexObjects.get(key);
-       if (obj && obj.destroy) obj.destroy();
+   addCenterMarker() {
+       for (const marker of this.debugMarkers) {
+           if (marker && marker.destroy) marker.destroy();
+       }
+       this.debugMarkers = [];
+       
+       const pos = this.hexToPixel(0, 0);
+       
+       const circle = this.scene.add.circle(pos.x, pos.y, 20, 0xff0000);
+       circle.setDepth(100);
+       circle.setStrokeStyle(3, 0xffffff);
+       this.debugMarkers.push(circle);
+       
+       const text = this.scene.add.text(pos.x, pos.y - 30, 'ЦЕНТР КАРТЫ', {
+           fontSize: '14px',
+           color: '#ffffff',
+           backgroundColor: '#000000',
+           padding: { x: 6, y: 3 },
+           fontStyle: 'bold'
+       });
+       text.setOrigin(0.5);
+       text.setDepth(100);
+       this.debugMarkers.push(text);
    }
-   this.hexObjects.clear();
-   
-   for (var i = 0; i < this.debugMarkers.length; i++) {
-       var marker = this.debugMarkers[i];
-       if (marker && marker.destroy) marker.destroy();
-   }
-   this.debugMarkers = [];
-   
-   if (this.hexContainer) {
-       this.hexContainer.destroy();
-       this.hexContainer = null;
-   }
-   
-   if (this.graphics) {
-       this.graphics.destroy();
-       this.graphics = null;
-   }
-};
 
-// Экспорт для браузера
+   highlightHex(q, r, color) {
+       const key = q + ',' + r;
+       const highlightKey = 'highlight_' + key;
+       
+       if (this.currentHighlightKey === highlightKey) {
+           this.clearHighlight();
+           this.currentHighlightKey = null;
+           return null;
+       }
+       
+       const pos = this.hexToPixel(q, r);
+       
+       const g = this.scene.add.graphics();
+       const points = this.getHexPoints(0, 0, this.hexSize + 3);
+       
+       g.fillStyle(color || 0xffeb3b, 0.3);
+       g.beginPath();
+       for (let i = 0; i < points.length; i++) {
+           if (i === 0) g.moveTo(points[i].x, points[i].y);
+           else g.lineTo(points[i].x, points[i].y);
+       }
+       g.closePath();
+       g.fillPath();
+       
+       g.lineStyle(4, color || 0xffeb3b, 1);
+       g.beginPath();
+       for (let i = 0; i < points.length; i++) {
+           if (i === 0) g.moveTo(points[i].x, points[i].y);
+           else g.lineTo(points[i].x, points[i].y);
+       }
+       g.closePath();
+       g.strokePath();
+       
+       g.fillStyle(color || 0xffeb3b, 0.1);
+       g.fillCircle(0, 0, this.hexSize * 1.5);
+       
+       g.setPosition(pos.x, pos.y);
+       g.setDepth(2);
+       
+       if (this.hexContainer) {
+           this.hexContainer.add(g);
+       }
+       
+       this.hexObjects.set(highlightKey, g);
+       this.currentHighlightKey = highlightKey;
+       
+       return g;
+   }
+
+   clearHighlight() {
+       const toRemove = [];
+       for (const key of this.hexObjects.keys()) {
+           if (key.startsWith('highlight_')) {
+               const obj = this.hexObjects.get(key);
+               if (obj && obj.destroy) {
+                   obj.destroy();
+               }
+               toRemove.push(key);
+           }
+       }
+       for (const key of toRemove) {
+           this.hexObjects.delete(key);
+       }
+       this.currentHighlightKey = null;
+   }
+
+   highlightMoveArea(q, r, validNeighbors) {
+       this.clearHighlight();
+       
+       // Подсвечиваем центр
+       this.highlightHex(q, r, 0xffdd44);
+       
+       // Подсвечиваем соседей
+       if (validNeighbors && validNeighbors.length > 0) {
+           for (const n of validNeighbors) {
+               this.highlightHex(n.q, n.r, 0x44ff44);
+           }
+       }
+   }
+
+   clearMoveHighlight() {
+       this.clearHighlight();
+   }
+
+   destroy() {
+       for (const [key, obj] of this.hexObjects) {
+           if (obj && obj.destroy) obj.destroy();
+       }
+       this.hexObjects.clear();
+       
+       for (const marker of this.debugMarkers) {
+           if (marker && marker.destroy) marker.destroy();
+       }
+       this.debugMarkers = [];
+       
+       if (this.hexContainer) {
+           this.hexContainer.destroy();
+           this.hexContainer = null;
+       }
+       
+       if (this.graphics) {
+           this.graphics.destroy();
+           this.graphics = null;
+       }
+   }
+}
+
+// Экспорт
 if (typeof window !== 'undefined') {
    window.HexGrid = HexGrid;
 }
 
-// Экспорт для Node.js
 if (typeof module !== 'undefined' && module.exports) {
-   module.exports = { HexGrid: HexGrid };
+   module.exports = { HexGrid };
 }

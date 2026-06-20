@@ -1,724 +1,565 @@
-// client/scenes/GameScene.js - ИСПРАВЛЕННЫЙ
+// client/scenes/GameScene.js - ПОЛНОСТЬЮ ИСПРАВЛЕННАЯ ВЕРСИЯ
 
-function GameScene() {
-   Phaser.Scene.call(this, { key: 'GameScene' });
-   
-   this.gameState = null;
-   this.hexGrid = null;
-   this.tankSprites = new Map();
-   this.gameController = null;
-   this.inputController = null;
-   this.cameraController = null;
-   this.socket = null;
-   this.isLocalGame = true;
-   this.debugText = null;
-   this.isReady = false;
-   
-   this.activeProjectiles = [];
-   this.processedMoves = new Set();
-   this.moveProcessingLock = false;
-   this.updateTimer = null;
-   this.botTimer = null;
-}
-
-GameScene.prototype = Object.create(Phaser.Scene.prototype);
-GameScene.prototype.constructor = GameScene;
-
-GameScene.prototype.init = function(data) {
-   console.log('🔧 GameScene.init()', data || '');
-   if (data) {
-       this.isLocalGame = data.isLocalGame !== undefined ? data.isLocalGame : true;
-       this.socket = data.socket || null;
+class GameScene extends Phaser.Scene {
+   constructor() {
+       super({ key: 'GameScene' });
+       
+       this.gameState = null;
+       this.hexGrid = null;
+       this.tankSprites = new Map();
+       this.animationEngine = null;
+       this.shootAnimation = null;
+       this.gameController = null;
+       this.inputController = null;
+       this.cameraController = null;
+       
+       this.isReady = false;
+       this.pendingState = null;
+       this.processedMoves = new Set();
+       this.lastMoveTime = 0;
+       
+       this.moveDuration = 1500;
+       this.rotateDuration = 400;
+       this.shootDuration = 300;
    }
-};
 
-GameScene.prototype.create = function() {
-   console.log('🎮 GameScene.create() START');
-   
-   this.cameras.main.setBackgroundColor('#1a2a3a');
-   
-   var width = this.cameras.main.width;
-   var height = this.cameras.main.height;
-   console.log('📐 Размеры камеры:', width, 'x', height);
-   
-   // 1. Гексагональная сетка
-   this.hexGrid = new HexGrid(this, 45);
-   this.hexGrid.init();
-   console.log('✅ HexGrid создан');
-   
-   // 2. Контроллер игры - ПЕРЕДАЕМ this
-   this.gameController = new GameController(this, null);
-   this.gameController.init();
-   console.log('✅ GameController создан');
-   
-   // 3. Контроллер ввода - ПЕРЕДАЕМ this
-   this.inputController = new InputController(this, this.gameController);
-   this.inputController.init();
-   this.inputController.scene = this;
-   console.log('✅ InputController создан');
-   
-   // 4. Контроллер камеры
-   this.cameraController = new CameraController(this);
-   this.cameraController.init();
-   console.log('✅ CameraController создан');
-   
-   this.isReady = true;
-   
-   // Обновляем состояние
-   this.gameController.updateGameState();
-   console.log('✅ Начальное состояние загружено');
-   
-   // Отладочный текст
-   this.debugText = this.add.text(
-       10, 10,
-       'Гексов: 0 | Танков: 0 | Зум: 1.0x',
-       { fontSize: '14px', color: '#ffffff', backgroundColor: '#000000', padding: { x: 8, y: 4 } }
-   );
-   this.debugText.setDepth(100);
-   this.debugText.setScrollFactor(0);
-   
-   // Таймеры
-   this.updateTimer = this.time.addEvent({
-       delay: 50,
-       callback: this.onUpdate,
-       callbackScope: this,
-       loop: true
-   });
-   
-   this.botTimer = this.time.addEvent({
-       delay: 2000,
-       callback: this.onBotAction,
-       callbackScope: this,
-       loop: true
-   });
-   
-   var self = this;
-   window.addEventListener('resize', function() {
-       self.onResize();
-   });
-   
-   setTimeout(function() {
-       console.log('🔄 Принудительная перерисовка...');
-       if (self.gameState) {
-           self.updateGameState(self.gameState);
+   create() {
+       console.log('🎮 GameScene.create() START');
+       
+       this.cameras.main.setBackgroundColor('#1a2a3a');
+       this.setupScene();
+       this.setupControllers();
+       this.setupInput();
+       this.setupUI();
+       this.setupTimers();
+       
+       this.isReady = true;
+       this.loadInitialState();
+       
+       console.log('✅ GameScene.create() FINISHED');
+   }
+
+   setupScene() {
+       const width = this.cameras.main.width;
+       const height = this.cameras.main.height;
+       
+       this.hexGrid = new HexGrid(this, 45);
+       this.hexGrid.init();
+       
+       this.animationEngine = new AnimationEngine(this);
+       this.animationEngine.setDebug(false);
+       
+       this.shootAnimation = new ShootAnimation(this, this.hexGrid);
+       this.shootAnimation.setDebug(false);
+       
+       console.log('✅ Сцена настроена');
+   }
+
+   setupControllers() {
+       this.gameController = new GameController(this, null);
+       this.gameController.init();
+       
+       this.inputController = new InputController(this, this.gameController);
+       this.inputController.init();
+       this.inputController.scene = this;
+       
+       this.cameraController = new CameraController(this);
+       this.cameraController.init();
+       
+       console.log('✅ Контроллеры созданы');
+   }
+
+   setupInput() {
+       this.input.on('pointerdown', (pointer) => {
+           if (this.inputController) {
+               this.inputController.handleClick(pointer);
+           }
+       });
+       
+       this.input.keyboard.on('keydown', (event) => {
+           if (event.key === 'd' || event.key === 'D') {
+               this.toggleDebug();
+           }
+       });
+       
+       console.log('✅ Ввод настроен');
+   }
+
+   setupUI() {
+       const shootBtn = document.getElementById('shootBtn');
+       if (shootBtn) {
+           shootBtn.addEventListener('click', () => {
+               if (this.inputController) {
+                   this.inputController.executeShoot();
+               }
+           });
        }
-   }, 500);
-   
-   console.log('✅ GameScene.create() FINISHED');
-};
-
-// ============================================
-// updateGameState - ДОЛЖЕН БЫТЬ В GameScene
-// ============================================
-GameScene.prototype.updateGameState = function(state) {
-   if (!this.isReady) {
-       console.log('⏳ Сцена еще не готова, откладываем обновление');
-       return;
+       
+       const resetBtn = document.getElementById('resetBtn');
+       if (resetBtn) {
+           resetBtn.addEventListener('click', () => {
+               if (this.gameController) {
+                   this.gameController.resetGame();
+               }
+           });
+       }
+       
+       const newGameBtn = document.getElementById('newGameBtn');
+       if (newGameBtn) {
+           newGameBtn.addEventListener('click', () => {
+               if (this.gameController) {
+                   this.gameController.resetGame();
+               }
+           });
+       }
+       
+       console.log('✅ UI настроен');
    }
-   
-   if (!state) {
-       if (this.gameController && this.gameController.gameState) {
-           state = this.gameController.gameState;
-       } else {
+
+   setupTimers() {
+       this.time.addEvent({
+           delay: 100,
+           callback: () => {
+               if (this.gameController) {
+                   this.gameController.updateUI();
+               }
+           },
+           loop: true
+       });
+       
+       this.time.addEvent({
+           delay: 5000,
+           callback: () => {
+               this.cleanupAnimations();
+           },
+           loop: true
+       });
+       
+       console.log('✅ Таймеры настроены');
+   }
+
+   loadInitialState() {
+       if (this.gameController) {
+           this.gameController.updateGameState();
+       }
+       
+       if (!this.gameState) {
+           this.createTestState();
+       }
+   }
+
+   // ============================================
+   // ОБНОВЛЕНИЕ СОСТОЯНИЯ
+   // ============================================
+
+   updateGameState(state) {
+       if (!this.isReady) {
+           this.pendingState = state;
            return;
        }
-   }
-   
-   this.gameState = state;
-   
-   if (state.cells && this.hexGrid) {
-       this.hexGrid.drawMap(state.cells);
-   }
-   
-   if (state.lastMoves) {
-       this.processLastMoves(state.lastMoves);
-   }
-   
-   this.updateTanks(state);
-   
-   if (this.inputController) {
-       this.inputController.setGameState(state);
-   }
-   
-   if (this.gameController) {
-       this.gameController.updateUI();
-   }
-};
-
-// ============================================
-// ОСТАЛЬНЫЕ МЕТОДЫ (onUpdate, processLastMoves, updateTanks, и т.д.)
-// ============================================
-// ... остальные методы остаются без изменений ...
-
-// ============================================
-// onUpdate
-// ============================================
-GameScene.prototype.onUpdate = function() {
-    // Обновляем спрайты
-    var allAnimationsComplete = true;
-    var self = this;
-    
-    this.tankSprites.forEach(function(sprite, key) {
-        if (sprite && sprite.update) {
-            sprite.update();
-            if (sprite.isAnimating) {
-                allAnimationsComplete = false;
-            }
-        }
-    });
-    
-    // Очистка старых записей
-    if (this.processedMoves.size > 100) {
-        var now = Date.now();
-        var toRemove = [];
-        for (var key of this.processedMoves) {
-            var parts = key.split('_');
-            if (parts.length >= 5) {
-                var timestamp = parseInt(parts[parts.length - 1]);
-                if (now - timestamp > 5000) {
-                    toRemove.push(key);
-                }
-            }
-        }
-        for (var i = 0; i < toRemove.length; i++) {
-            this.processedMoves.delete(toRemove[i]);
-        }
-    }
-    
-    // Обрабатываем последние движения
-    if (allAnimationsComplete && this.gameState && !this.moveProcessingLock) {
-        if (this.gameState.lastMoves) {
-            var hasNewMoves = false;
-            for (var unitId in this.gameState.lastMoves) {
-                if (!this.gameState.lastMoves.hasOwnProperty(unitId)) continue;
-                var move = this.gameState.lastMoves[unitId];
-                var moveKey = unitId + '_' + move.fromQ + '_' + move.fromR + '_' + move.toQ + '_' + move.toR;
-                if (!this.processedMoves.has(moveKey)) {
-                    if (this.tankSprites.has(unitId)) {
-                        var sprite = this.tankSprites.get(unitId);
-                        if (!sprite.isAnimating) {
-                            if (sprite.unit.q !== move.toQ || sprite.unit.r !== move.toR) {
-                                hasNewMoves = true;
-                                break;
-                            }
-                        }
-                    }
-                }
-            }
-            if (hasNewMoves) {
-                this.processLastMoves(this.gameState.lastMoves);
-            }
-        }
-    }
-    
-    if (this.gameController) {
-        this.gameController.updateUI();
-    }
-    
-    this.updateDebugText();
-};
-
-// ============================================
-// updateDebugText
-// ============================================
-GameScene.prototype.updateDebugText = function() {
-   if (this.debugText && this.hexGrid) {
-       this.debugText.setText(
-           'Гексов: ' + this.hexGrid.hexObjects.size + 
-           ' | Танков: ' + this.tankSprites.size +
-           ' | Зум: ' + (this.cameraController ? this.cameraController.zoom.toFixed(2) : '1.0') + 'x' +
-           ' | Снарядов: ' + this.activeProjectiles.length
-       );
-   }
-};
-
-// ============================================
-// processLastMoves
-// ============================================
-GameScene.prototype.processLastMoves = function(lastMoves) {
-    if (!this.isReady) return;
-    if (!lastMoves) return;
-    if (this.moveProcessingLock) return;
-    
-    this.moveProcessingLock = true;
-    var self = this;
-    
-    try {
-        var processedCount = 0;
-        
-        for (var unitId in lastMoves) {
-            if (!lastMoves.hasOwnProperty(unitId)) continue;
-            
-            var move = lastMoves[unitId];
-            if (!move) continue;
-            
-            var moveKey = unitId + '_' + move.fromQ + '_' + move.fromR + '_' + move.toQ + '_' + move.toR;
-            if (this.processedMoves.has(moveKey)) continue;
-            
-            if (!this.tankSprites.has(unitId)) {
-                continue;
-            }
-            
-            var sprite = this.tankSprites.get(unitId);
-            if (sprite.isAnimating) continue;
-            
-            var currentQ = sprite.unit.q;
-            var currentR = sprite.unit.r;
-            
-            if (currentQ === move.fromQ && currentR === move.fromR) {
-                var direction = HexUtils.getDirection(move.fromQ, move.fromR, move.toQ, move.toR);
-                
-                sprite.unit.direction = direction;
-                sprite.unit.q = move.toQ;
-                sprite.unit.r = move.toR;
-                sprite.currentDirection = direction;
-                
-                sprite.animateMove(
-                    move.fromQ, move.fromR, move.toQ, move.toR, 2000,
-                    function() {
-                        self.processedMoves.add(moveKey);
-                        setTimeout(function() {
-                            if (self.gameState && self.gameState.lastMoves) {
-                                self.processLastMoves(self.gameState.lastMoves);
-                            }
-                        }, 100);
-                    }
-                );
-                processedCount++;
-            }
-        }
-    } catch (error) {
-        console.error('❌ Ошибка в processLastMoves:', error);
-    } finally {
-        this.moveProcessingLock = false;
-    }
-};
-
-// client/scenes/GameScene.js - ИСПРАВЛЕННЫЙ МЕТОД updateTanks
-
-GameScene.prototype.updateTanks = function(state) {
-   if (!state || !this.isReady) return;
-   
-   var currentTanks = new Map();
-   var self = this;
-   
-   // Собираем текущие танки
-   if (state.myTank && state.myTank.active !== false) {
-       currentTanks.set(state.myTank.id, { unit: state.myTank, isPlayer: true });
-   }
-   
-   if (state.enemies) {
-       for (var i = 0; i < state.enemies.length; i++) {
-           var enemy = state.enemies[i];
-           if (enemy.active !== false) {
-               currentTanks.set(enemy.id, { unit: enemy, isPlayer: false });
+       
+       if (!state) {
+           if (this.gameController && this.gameController.gameState) {
+               state = this.gameController.gameState;
+           } else {
+               return;
            }
        }
+       
+       this.gameState = state;
+       
+       if (state.cells && this.hexGrid) {
+           this.hexGrid.drawMap(state.cells);
+       }
+       
+       this.updateTanks(state);
+       
+       if (this.inputController) {
+           this.inputController.setGameState(state);
+       }
+       
+       if (this.gameController) {
+           this.gameController.updateUI();
+       }
    }
-   
-   // Обновляем или создаем танки
-   currentTanks.forEach(function(value, id) {
-       if (self.tankSprites.has(id)) {
-           var sprite = self.tankSprites.get(id);
-           var unit = value.unit;
-           
-           // ✅ ПРОВЕРЯЕМ, НУЖНО ЛИ АНИМИРОВАТЬ ДВИЖЕНИЕ
-           var currentPos = { q: sprite.unit.q, r: sprite.unit.r };
-           var needMove = (currentPos.q !== unit.q || currentPos.r !== unit.r);
-           
-           if (needMove && !sprite.isAnimating) {
-               // ✅ ЗАПУСКАЕМ АНИМАЦИЮ ВМЕСТО МГНОВЕННОГО ПЕРЕМЕЩЕНИЯ
-               console.log('🎯 АНИМАЦИЯ ДВИЖЕНИЯ от', currentPos.q, currentPos.r, 'до', unit.q, unit.r);
-               
-               // Сохраняем старую позицию для анимации
-               var fromQ = sprite.unit.q;
-               var fromR = sprite.unit.r;
-               var toQ = unit.q;
-               var toR = unit.r;
-               
-               // Обновляем данные до новой позиции
-               sprite.unit.q = toQ;
-               sprite.unit.r = toR;
-               sprite.unit.direction = unit.direction || sprite.unit.direction;
-               
-               // Запускаем анимацию
-               sprite.animateMove(fromQ, fromR, toQ, toR, 1500, function() {
-                   console.log('✅ Анимация завершена для', id);
-                   // После анимации обновляем HP и другие параметры
-                   if (sprite.unit.hp !== unit.hp) {
-                       sprite.unit.hp = unit.hp;
-                       sprite.updateHPBar();
-                   }
-                   // Проверяем, не завершена ли игра
-                   if (self.gameState && self.gameState.gameOver) {
-                       // Показываем Game Over
+
+   updateTanks(state) {
+      if (!state || !this.isReady) return;
+      
+      const currentTanks = this.getCurrentTanks(state);
+      const self = this;
+      
+      currentTanks.forEach((value, id) => {
+          if (self.tankSprites.has(id)) {
+              const sprite = self.tankSprites.get(id);
+              const unit = value.unit;
+              
+              // ✅ ПРОСТАЯ ПРОВЕРКА
+              if (sprite._isAnimating) {
+                  if (sprite.unit.hp !== unit.hp) {
+                      sprite.unit.hp = unit.hp;
+                      sprite.updateHPBar();
+                  }
+                  return;
+              }
+              
+              const currentPos = { q: sprite.unit.q, r: sprite.unit.r };
+              const needMove = (currentPos.q !== unit.q || currentPos.r !== unit.r);
+              
+              if (needMove) {
+                  console.log(`🎯 ДВИЖЕНИЕ: (${currentPos.q},${currentPos.r}) -> (${unit.q},${unit.r})`);
+                  
+                  const fromQ = sprite.unit.q;
+                  const fromR = sprite.unit.r;
+                  const toQ = unit.q;
+                  const toR = unit.r;
+                  
+                  sprite.unit.q = toQ;
+                  sprite.unit.r = toR;
+                  sprite.unit.direction = unit.direction || sprite.unit.direction;
+                  
+                  // ✅ ПРОСТО ВЫЗЫВАЕМ MOVE TO
+                  sprite.moveTo(fromQ, fromR, toQ, toR, self.moveDuration, function() {
+                      console.log(`✅ Анимация завершена для ${id}`);
+                      if (sprite.unit.hp !== unit.hp) {
+                          sprite.unit.hp = unit.hp;
+                          sprite.updateHPBar();
+                      }
+                  });
+                  
+                  if (sprite.unit.hp !== unit.hp) {
+                      sprite.unit.hp = unit.hp;
+                      sprite.updateHPBar();
+                  }
+                  
+                  if (unit.direction && unit.direction !== sprite.currentDirection) {
+                      sprite.rotateTurret(unit.direction);
+                  }
+                  
+              } else {
+                  const targetPos = self.hexGrid.hexToPixel(unit.q, unit.r);
+                  sprite.container.setPosition(targetPos.x, targetPos.y);
+                  sprite.unit.q = unit.q;
+                  sprite.unit.r = unit.r;
+                  
+                  if (unit.direction) {
+                      sprite.unit.direction = unit.direction;
+                      sprite.currentDirection = unit.direction;
+                  }
+                  
+                  if (sprite.unit.hp !== unit.hp) {
+                      sprite.unit.hp = unit.hp;
+                      sprite.updateHPBar();
+                  }
+                  sprite.updatePosition(unit.q, unit.r, unit.direction);
+              }
+          } else {
+              // Создаем новый танк
+              console.log(`🆕 СОЗДАЕМ НОВЫЙ ТАНК: ${id}`);
+              const sprite = new TankSprite(self, value.unit, self.hexGrid, self.animationEngine);
+              sprite.create();
+              sprite.moveDuration = self.moveDuration;
+              sprite.rotateDuration = self.rotateDuration;
+              
+              const pos = self.hexGrid.hexToPixel(value.unit.q, value.unit.r);
+              sprite.container.setScale(0);
+              self.tweens.add({
+                  targets: sprite.container,
+                  scale: 1,
+                  duration: 300,
+                  ease: 'Back.Out'
+              });
+              
+              self.tankSprites.set(id, sprite);
+              console.log(`✅ Создан танк: ${id} (${value.unit.name})`);
+          }
+      });
+      
+      this.removeMissingTanks(currentTanks);
+  }
+  
+
+   getCurrentTanks(state) {
+       const tanks = new Map();
+       
+       if (state.myTank && state.myTank.active !== false) {
+           tanks.set(state.myTank.id, { unit: state.myTank, isPlayer: true });
+       }
+       
+       if (state.enemies) {
+           for (const enemy of state.enemies) {
+               if (enemy.active !== false) {
+                   tanks.set(enemy.id, { unit: enemy, isPlayer: false });
+               }
+           }
+       }
+       
+       return tanks;
+   }
+
+   removeMissingTanks(currentTanks) {
+       const toRemove = [];
+       for (const [id, sprite] of this.tankSprites) {
+           if (!currentTanks.has(id)) {
+               toRemove.push(id);
+           }
+       }
+       
+       for (const id of toRemove) {
+           const sprite = this.tankSprites.get(id);
+           if (sprite) {
+               this.tweens.add({
+                   targets: sprite.container,
+                   alpha: 0,
+                   scale: 0.5,
+                   duration: 300,
+                   onComplete: () => {
+                       sprite.destroy();
+                       this.tankSprites.delete(id);
                    }
                });
-               
-               // Обновляем HP сразу (без анимации)
-               if (sprite.unit.hp !== unit.hp) {
-                   sprite.unit.hp = unit.hp;
-                   sprite.updateHPBar();
-               }
-               
-               // Обновляем направление башни
-               if (unit.direction && unit.direction !== sprite.currentDirection) {
-                   sprite.setTurretDirection(unit.direction);
-               }
-               
-           } else if (!sprite.isAnimating) {
-               // ✅ Если не нужно двигаться - просто обновляем позицию
-               var targetPos = self.hexGrid.hexToPixel(unit.q, unit.r);
-               sprite.container.setPosition(targetPos.x, targetPos.y);
-               sprite.unit.q = unit.q;
-               sprite.unit.r = unit.r;
-               
-               if (unit.direction) {
-                   sprite.unit.direction = unit.direction;
-                   sprite.currentDirection = unit.direction;
-               }
-               
-               if (sprite.unit.hp !== unit.hp) {
-                   sprite.unit.hp = unit.hp;
-                   sprite.updateHPBar();
-               }
-               sprite.updatePosition(unit.q, unit.r, unit.direction);
            }
-       } else {
-           // Создаем новый спрайт
-           var sprite = new TankSprite(self, value.unit, self.hexGrid);
-           sprite.create();
-           self.tankSprites.set(id, sprite);
-       }
-   });
-   
-   // Удаляем отсутствующие танки
-   var tankKeys = self.tankSprites.keys();
-   var toRemove = [];
-   for (var key of tankKeys) {
-       if (!currentTanks.has(key)) {
-           toRemove.push(key);
        }
    }
-   
-   for (var i = 0; i < toRemove.length; i++) {
-       var id = toRemove[i];
-       var sprite = self.tankSprites.get(id);
-       if (sprite) {
-           sprite.destroy();
-           self.tankSprites.delete(id);
-       }
-   }
-};
 
-// ============================================
-// onBotAction
-// ============================================
-GameScene.prototype.onBotAction = function() {
-   if (this.isLocalGame && this.gameController) {
-       var result = this.gameController.botAction();
-       if (result && result.type === 'move') {
-           var unitId = result.unitId;
-           var state = this.gameState;
-           var unitData = null;
-           
-           if (state && state.enemies) {
-               for (var i = 0; i < state.enemies.length; i++) {
-                   if (state.enemies[i].id === unitId) {
-                       unitData = state.enemies[i];
-                       break;
-                   }
-               }
-           }
-           
-           if (unitData) {
-               var sprite = this.tankSprites.get(unitId);
-               if (!sprite) {
-                   sprite = new TankSprite(this, unitData, this.hexGrid);
-                   sprite.create();
-                   this.tankSprites.set(unitId, sprite);
-               }
-               
-               var self = this;
-               sprite.animateMove(
-                   result.fromQ, result.fromR, result.toQ, result.toR, 2000,
-                   function() {
-                       sprite.updateBarrel();
-                       if (self.gameController) {
-                           self.gameController.updateGameState();
-                       }
-                   }
-               );
-           }
-       } else if (result) {
-           this.handleShootResult(result);
-       }
-   }
-};
+   // ============================================
+   // ОБРАБОТКА ВЫСТРЕЛОВ
+   // ============================================
 
-// ============================================
-// handleShootResult
-// ============================================
-GameScene.prototype.handleShootResult = function(result) {
+ // client/scenes/GameScene.js - В МЕТОДЕ handleShootResult
+
+handleShootResult(result) {
    if (!result) return;
+   
    console.log('🎯 handleShootResult:', result);
    
-   if (result.fromQ !== undefined && result.fromR !== undefined &&
-       result.targetQ !== undefined && result.targetR !== undefined) {
-       this.animateShot(result.fromQ, result.fromR, result.targetQ, result.targetR, result.attackerId || result.unitId);
+   let attacker = null;
+   if (result.attackerId) {
+       attacker = this.tankSprites.get(result.attackerId);
    }
    
-   if (result.hit) {
-       if (result.killed) {
-           this.showMessage('💀 ' + (result.message || 'Уничтожение!'));
-           if (result.targetQ !== undefined && result.targetR !== undefined) {
-               this.addSmoke(result.targetQ, result.targetR);
+   // ✅ ЕСЛИ ЕСТЬ СТРЕЛЯЮЩИЙ - ПОВОРАЧИВАЕМ СТВОЛ И СТРЕЛЯЕМ
+   if (attacker) {
+       // Поворачиваем ствол в направлении выстрела
+       const fromQ = result.fromQ;
+       const fromR = result.fromR;
+       const targetQ = result.targetQ;
+       const targetR = result.targetR;
+       const dir = HexUtils.getDirection(fromQ, fromR, targetQ, targetR);
+       
+       // ✅ ПОВОРАЧИВАЕМ СТВОЛ И СТРЕЛЯЕМ
+       attacker.shootAt(targetQ, targetR, () => {
+           // После выстрела ствол остается в этом направлении
+           console.log('✅ Выстрел завершен, ствол в направлении', dir);
+       });
+   }
+   
+   // Анимируем снаряд
+   if (result.fromQ !== undefined && result.fromR !== undefined &&
+       result.targetQ !== undefined && result.targetR !== undefined) {
+       
+       this.shootAnimation.fire(
+           result.fromQ, result.fromR,
+           result.targetQ, result.targetR,
+           {
+               duration: this.shootDuration,
+               onHit: (x, y, data) => {
+                   if (result.hit) {
+                       this.showHitEffect(result.targetQ, result.targetR, result.damage || 0);
+                       this.showMessage(`💥 Попадание! -${result.damage || 0} HP`);
+                       
+                       if (result.killed) {
+                           this.showMessage(`💀 ${result.targetName || 'Враг'} уничтожен!`);
+                       }
+                   } else {
+                       this.showMessage(`💨 Промах!`);
+                   }
+               }
            }
-       } else {
-           this.showMessage('💥 ' + result.message);
-       }
-   } else if (result.message) {
-       this.showMessage('❌ ' + result.message);
+       );
    }
    
    if (this.gameController) {
        this.gameController.updateGameState();
    }
-};
+}
 
-// ============================================
-// АНИМАЦИЯ ВЫСТРЕЛА
-// ============================================
-GameScene.prototype.animateShot = function(fromQ, fromR, toQ, toR, unitId) {
-    var from = this.hexGrid.hexToPixel(fromQ, fromR);
-    var to = this.hexGrid.hexToPixel(toQ, toR);
-    
-    console.log('🎯 animateShot от', fromQ, fromR, 'до', toQ, toR);
-    
-    var shootingTank = null;
-    if (unitId) {
-        shootingTank = this.tankSprites.get(unitId);
-    }
-    
-    if (!shootingTank) {
-        this.tankSprites.forEach(function(sprite, key) {
-            if (sprite.unit && sprite.unit.active !== false &&
-                sprite.unit.q === fromQ && sprite.unit.r === fromR) {
-                shootingTank = sprite;
-            }
-        });
-    }
-    
-    var direction = HexUtils.getDirection(fromQ, fromR, toQ, toR);
-    console.log('🎯 Направление выстрела:', direction);
-    
-    if (shootingTank && typeof shootingTank.rotateTurret === 'function') {
-        shootingTank.rotateTurret(direction, 300, function() {
-            console.log('✅ Башня повернута, выполняем выстрел');
-            this._executeShot(from, to, shootingTank);
-        }.bind(this));
-    } else {
-        this._executeShot(from, to, null);
-    }
-};
-
-// ============================================
-// ВЫПОЛНЕНИЕ ВЫСТРЕЛА
-// ============================================
-GameScene.prototype._executeShot = function(from, to, shootingTank) {
-    console.log('💥 _executeShot от', from.x, from.y, 'до', to.x, to.y);
-    
-    if (shootingTank && typeof shootingTank.playRecoil === 'function') {
-        shootingTank.playRecoil();
-    }
-    
-    var self = this;
-    
-    var projectile = this.add.circle(from.x, from.y, 8, 0xff6600);
-    projectile.setDepth(20);
-    projectile.setStrokeStyle(3, 0xffaa00);
-    
-    var glow = this.add.circle(from.x, from.y, 20, 0xff8800, 0.3);
-    glow.setDepth(19);
-    
-    var projectileData = { projectile: projectile, glow: glow, active: true };
-    this.activeProjectiles.push(projectileData);
-    
-    var dx = to.x - from.x;
-    var dy = to.y - from.y;
-    var distance = Math.sqrt(dx * dx + dy * dy);
-    var duration = Math.max(300, Math.min(1200, distance * 0.8));
-    
-    this.tweens.add({
-        targets: projectile,
-        x: to.x,
-        y: to.y,
-        duration: duration,
-        ease: 'Power1',
-        onUpdate: function() {
-            glow.x = projectile.x;
-            glow.y = projectile.y;
-        },
-        onComplete: function() {
-            var index = self.activeProjectiles.indexOf(projectileData);
-            if (index !== -1) {
-                self.activeProjectiles.splice(index, 1);
-            }
-            projectile.destroy();
-            glow.destroy();
-            
-            self.addExplosionAt(to.x, to.y);
-            
-            var hex = self.hexGrid.pixelToHex(to.x, to.y);
-            if (hex) {
-                console.log('📍 Клетка взрыва:', hex.q, hex.r);
-                self.checkHitSound(hex.q, hex.r);
-            }
-        }
-    });
-};
-
-// ============================================
-// ВСПОМОГАТЕЛЬНЫЕ МЕТОДЫ
-// ============================================
-GameScene.prototype.addExplosionAt = function(x, y) {
-    for (var i = 0; i < 20; i++) {
-        var angle = Math.random() * Math.PI * 2;
-        var dist = 15 + Math.random() * 45;
-        var particle = this.add.circle(x, y, 2 + Math.random() * 6, 0xff6600);
-        particle.setDepth(15);
-        
-        (function(particle) {
-            this.tweens.add({
-                targets: particle,
-                x: x + Math.cos(angle) * dist,
-                y: y + Math.sin(angle) * dist,
-                alpha: 0,
-                scale: 0.1,
-                duration: 300 + Math.random() * 300,
-                ease: 'Power2',
-                onComplete: function() {
-                    particle.destroy();
-                }
-            });
-        }).call(this, particle);
-    }
-    
-    var flash = this.add.circle(x, y, 30, 0xffffff, 0.7);
-    flash.setDepth(14);
-    this.tweens.add({
-        targets: flash,
-        scale: 0.1,
-        alpha: 0,
-        duration: 150,
-        onComplete: function() {
-            flash.destroy();
-        }
-    });
-};
-
-GameScene.prototype.addSmoke = function(q, r) {
-   var pos = this.hexGrid.hexToPixel(q, r);
-   for (var i = 0; i < 8; i++) {
-       var smoke = this.add.circle(
-           pos.x + (Math.random() - 0.5) * 30,
-           pos.y + (Math.random() - 0.5) * 30,
-           5 + Math.random() * 12,
-           0x888888,
-           0.3 + Math.random() * 0.3
-       );
-       smoke.setDepth(12);
-       (function(smoke) {
+   showHitEffect(q, r, damage) {
+       const pos = this.hexGrid.hexToPixel(q, r);
+       
+       this.shootAnimation.createExplosion(pos.x, pos.y, damage);
+       
+       if (damage > 0) {
+           const color = damage > 30 ? '#ff4444' : '#ffaa00';
+           const text = this.add.text(pos.x, pos.y - 20, `-${damage}`, {
+               fontSize: '24px',
+               color: color,
+               stroke: '#000000',
+               strokeThickness: 4,
+               fontStyle: 'bold'
+           }).setOrigin(0.5);
+           
            this.tweens.add({
-               targets: smoke,
-               scale: 4,
+               targets: text,
+               y: pos.y - 60,
                alpha: 0,
-               y: smoke.y - 40 - Math.random() * 40,
-               duration: 2000 + Math.random() * 1000,
-               ease: 'Power1',
-               onComplete: function() {
-                   smoke.destroy();
-               }
+               duration: 1000,
+               ease: 'Quadratic.Out',
+               onComplete: () => text.destroy()
            });
-       }).call(this, smoke);
+       }
+       
+       if (this.cameraController) {
+           this.cameraController.shake(100, 3);
+       }
    }
-};
 
-GameScene.prototype.checkHitSound = function(q, r) {
-   var hasTarget = false;
-   this.tankSprites.forEach(function(sprite) {
-       if (sprite.unit && sprite.unit.active !== false && 
-           sprite.unit.q === q && sprite.unit.r === r) {
-           hasTarget = true;
-           if (typeof sprite.playSound === 'function') {
-               sprite.playSound('hit');
+   // ============================================
+   // ВСПОМОГАТЕЛЬНЫЕ МЕТОДЫ
+   // ============================================
+
+   showMessage(text) {
+       if (this.inputController) {
+           this.inputController.showMessage(text);
+       }
+   }
+
+   showGameOver(winner) {
+       const overlay = document.getElementById('gameover');
+       const winnerText = document.getElementById('winnerText');
+       
+       if (overlay) overlay.style.display = 'flex';
+       if (winnerText) winnerText.textContent = winner || 'Игра окончена';
+   }
+
+   toggleDebug() {
+       if (this.animationEngine) {
+           this.animationEngine.setDebug(!this.animationEngine.debugMode);
+       }
+       if (this.shootAnimation) {
+           this.shootAnimation.setDebug(!this.shootAnimation.debugMode);
+       }
+       console.log(`🐛 Отладка: ${this.animationEngine.debugMode ? 'ВКЛ' : 'ВЫКЛ'}`);
+   }
+
+   cleanupAnimations() {
+       if (this.processedMoves.size > 100) {
+           const now = Date.now();
+           const toRemove = [];
+           for (const key of this.processedMoves) {
+               const parts = key.split('_');
+               if (parts.length >= 5) {
+                   const timestamp = parseInt(parts[parts.length - 1]);
+                   if (now - timestamp > 5000) {
+                       toRemove.push(key);
+                   }
+               }
+           }
+           for (const key of toRemove) {
+               this.processedMoves.delete(key);
            }
        }
-   });
-   if (!hasTarget) {
-       console.log('🔊 Промах (нет цели)');
    }
-};
 
-GameScene.prototype.showMessage = function(text) {
-   if (this.inputController) {
-       this.inputController.showMessage(text);
-   }
-};
-
-GameScene.prototype.onResize = function() {
-   if (this.hexGrid) {
-       var width = this.cameras.main.width;
-       var height = this.cameras.main.height;
-       this.hexGrid.gridOffsetX = width / 2;
-       this.hexGrid.gridOffsetY = height / 2;
+   createTestState() {
+       const state = {
+           myTank: {
+               id: 'player1',
+               name: 'Командир',
+               q: 1,
+               r: -8,
+               hp: 120,
+               maxHp: 120,
+               damage: 35,
+               color: '#ffd93d',
+               type: 'medium',
+               active: true,
+               direction: 'right',
+               kills: 0,
+               isPlayer: true
+           },
+           enemies: [{
+               id: 'enemy1',
+               name: 'Враг',
+               q: -1,
+               r: 8,
+               hp: 100,
+               maxHp: 100,
+               damage: 30,
+               color: '#e94560',
+               type: 'medium',
+               active: true,
+               direction: 'right',
+               kills: 0,
+               isPlayer: false
+           }],
+           cells: [],
+           gameOver: false,
+           winner: null
+       };
        
-       if (this.gameState) {
-           this.hexGrid.drawMap(this.gameState.cells);
-           this.updateTanks(this.gameState);
+       this.updateGameState(state);
+   }
+
+   onResize() {
+       if (this.hexGrid) {
+           const width = this.cameras.main.width;
+           const height = this.cameras.main.height;
+           this.hexGrid.gridOffsetX = width / 2;
+           this.hexGrid.gridOffsetY = height / 2;
+           
+           if (this.gameState) {
+               this.hexGrid.drawMap(this.gameState.cells);
+               this.updateTanks(this.gameState);
+           }
        }
    }
-};
 
-GameScene.prototype.shutdown = function() {
-   if (this.updateTimer) {
-       this.updateTimer.remove();
-       this.updateTimer = null;
+   shutdown() {
+       if (this.animationEngine) {
+           this.animationEngine.clearAll();
+       }
+       
+       for (const [id, sprite] of this.tankSprites) {
+           sprite.destroy();
+       }
+       this.tankSprites.clear();
+       
+       if (this.shootAnimation) {
+           this.shootAnimation.clearAll();
+       }
+       
+       if (this.inputController) {
+           this.inputController.destroy();
+           this.inputController = null;
+       }
+       if (this.gameController) {
+           this.gameController.destroy();
+           this.gameController = null;
+       }
+       if (this.cameraController) {
+           this.cameraController.destroy();
+           this.cameraController = null;
+       }
+       
+       if (this.hexGrid) {
+           this.hexGrid.destroy();
+           this.hexGrid = null;
+       }
+       
+       this.isReady = false;
+       this.processedMoves.clear();
+       
+       console.log('🧹 GameScene очищена');
    }
-   if (this.botTimer) {
-       this.botTimer.remove();
-       this.botTimer = null;
-   }
-   
-   for (var i = 0; i < this.activeProjectiles.length; i++) {
-       var p = this.activeProjectiles[i];
-       if (p.projectile) p.projectile.destroy();
-       if (p.glow) p.glow.destroy();
-   }
-   this.activeProjectiles = [];
-   
-   this.tankSprites.forEach(function(sprite, key) {
-       if (sprite) sprite.destroy();
-   });
-   this.tankSprites.clear();
-   
-   if (this.inputController) {
-       this.inputController.destroy();
-       this.inputController = null;
-   }
-   if (this.gameController) {
-       this.gameController.destroy();
-       this.gameController = null;
-   }
-   if (this.cameraController) {
-       this.cameraController.destroy();
-       this.cameraController = null;
-   }
-   
-   this.isReady = false;
-};
+}
 
 // Экспорт
 if (typeof window !== 'undefined') {
    window.GameScene = GameScene;
+   console.log('✅ GameScene зарегистрирован в window');
+}
+
+if (typeof module !== 'undefined' && module.exports) {
+   module.exports = { GameScene };
 }

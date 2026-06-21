@@ -321,63 +321,61 @@ class InputController {
        this.updateUI();
    }
 
-   // ============================================
-   // ВЫПОЛНЕНИЕ ВЫСТРЕЛА
-   // ============================================
+// client/controllers/InputController.js - ИСПРАВЛЕННЫЙ МЕТОД executeShoot
 
-   executeShoot() {
-       if (!this.selectedTarget) {
-           this.showMessage('⚠️ Сначала выберите цель');
+executeShoot() {
+   if (!this.selectedTarget) {
+       this.showMessage('⚠️ Сначала выберите цель');
+       return;
+   }
+   
+   if (this.gameController && this.gameController.isGameOver()) {
+       this.showMessage('⚠️ Игра окончена');
+       return;
+   }
+   
+   if (this.isProcessingAction) {
+       this.showMessage('⏳ Подождите, выполняется действие...');
+       return;
+   }
+   
+   const state = this.scene.gameState;
+   if (!state || !state.myTank || !state.myTank.active) {
+       this.showMessage('⚠️ Ваш танк уничтожен');
+       return;
+   }
+   
+   const myTank = state.myTank;
+   const target = this.selectedTarget;
+   
+   if (this.gameController && !this.gameController.canShoot(myTank.id)) {
+       const remaining = this.gameController.getRemainingShootCooldown(myTank.id);
+       this.showMessage(`⏱️ Перезарядка: ${Math.ceil(remaining/1000)}с`);
+       return;
+   }
+   
+   if (this.shootLogic) {
+       const allUnits = this.getAllUnits(state);
+       const check = this.shootLogic.canShootAt(myTank, target.q, target.r, allUnits);
+       
+       if (!check.canShoot) {
+           this.showMessage(`⚠️ ${check.reason}`);
            return;
-       }
-       
-       if (this.gameController && this.gameController.isGameOver()) {
-           this.showMessage('⚠️ Игра окончена');
-           return;
-       }
-       
-       if (this.isProcessingAction) {
-           this.showMessage('⏳ Подождите, выполняется действие...');
-           return;
-       }
-       
-       const state = this.scene.gameState;
-       if (!state || !state.myTank || !state.myTank.active) {
-           this.showMessage('⚠️ Ваш танк уничтожен');
-           return;
-       }
-       
-       const myTank = state.myTank;
-       const target = this.selectedTarget;
-       
-       if (this.gameController && !this.gameController.canShoot(myTank.id)) {
-           const remaining = this.gameController.getRemainingShootCooldown(myTank.id);
-           this.showMessage(`⏱️ Перезарядка: ${Math.ceil(remaining/1000)}с`);
-           return;
-       }
-       
-       if (this.shootLogic) {
-           const allUnits = this.getAllUnits(state);
-           const check = this.shootLogic.canShootAt(myTank, target.q, target.r, allUnits);
-           
-           if (!check.canShoot) {
-               this.showMessage(`⚠️ ${check.reason}`);
-               return;
-           }
-       }
-       
-       this.isProcessingAction = true;
-       
-       const tankSprite = this.scene.tankSprites.get(myTank.id);
-       if (tankSprite) {
-           const direction = HexUtils.getDirection(myTank.q, myTank.r, target.q, target.r);
-           tankSprite.rotateTurret(direction, 300, () => {
-               this.executeShotLogic(myTank, target);
-           });
-       } else {
-           this.executeShotLogic(myTank, target);
        }
    }
+   
+   this.isProcessingAction = true;
+   
+   // ✅ ИСПРАВЛЕНО: используем shootAt вместо rotateTurret
+   const tankSprite = this.scene.tankSprites.get(myTank.id);
+   if (tankSprite && typeof tankSprite.shootAt === 'function') {
+       tankSprite.shootAt(target.q, target.r, () => {
+           this.executeShotLogic(myTank, target);
+       });
+   } else {
+       this.executeShotLogic(myTank, target);
+   }
+}
 
 // client/controllers/InputController.js - В executeShotLogic
 

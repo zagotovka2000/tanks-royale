@@ -1,7 +1,6 @@
 // server/services/MoveValidator.js - ОБНОВЛЕННЫЙ
 
-var HexUtils = require('../../client/utils/HexUtils.js');
-
+const HexUtils = require('../../shared/utils/HexUtils.js');
 class MoveValidator {
    constructor(gameInstance) {
        this.game = gameInstance;

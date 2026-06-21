@@ -1,4 +1,4 @@
-// client/main.js
+// client/main.js - ИСПРАВЛЕННАЯ ВЕРСИЯ
 // Главный файл запуска игры
 
 (function() {
@@ -10,19 +10,23 @@
    // ПРОВЕРКА ЗАГРУЗКИ КЛАССОВ
    // ============================================
    
+   // ✅ ПРОВЕРЯЕМ ТОЛЬКО ТЕ КЛАССЫ, КОТОРЫЕ ДОЛЖНЫ БЫТЬ В window
    const requiredClasses = [
        'BootScene', 'GameScene', 
        'AnimationEngine', 'ShootAnimation', 'AnimationHelper',
-       'TankSprite', 'TankSprite', 'ParticleSystem',
+       'TankSprite', 'ParticleSystem',
        'InputController', 'GameController', 'CameraController',
        'HexGrid', 'HexUtils', 'TankGame'
    ];
+   
+   // ✅ УБИРАЕМ ДУБЛИРУЮЩИЕСЯ КЛАССЫ ИЗ СПИСКА
+   const uniqueClasses = [...new Set(requiredClasses)];
    
    let allLoaded = true;
    const missingClasses = [];
    const loadedClasses = [];
    
-   for (const className of requiredClasses) {
+   for (const className of uniqueClasses) {
        if (typeof window[className] === 'undefined') {
            console.error(`❌ Класс не загружен: ${className}`);
            allLoaded = false;
@@ -37,7 +41,21 @@
        console.error('❌ Не все классы загружены!');
        console.log('🔍 Отсутствуют:', missingClasses.join(', '));
        console.log('📋 Загружены:', loadedClasses.join(', '));
-       // Продолжаем, но с предупреждением
+       
+       // ✅ ЕСЛИ GameScene ОТСУТСТВУЕТ - ПЫТАЕМСЯ ВОССТАНОВИТЬ
+       if (missingClasses.includes('GameScene')) {
+           console.log('🔧 Пытаемся восстановить GameScene...');
+           // Проверяем, не определен ли GameScene в локальной области
+           if (typeof GameScene !== 'undefined') {
+               window.GameScene = GameScene;
+               console.log('✅ GameScene восстановлен из локальной области');
+               allLoaded = true;
+           } else {
+               // Показываем сообщение об ошибке
+               showFatalError('GameScene не загружен. Перезагрузите страницу.');
+               return;
+           }
+       }
    } else {
        console.log('✅ Все классы успешно загружены!');
    }
@@ -46,13 +64,31 @@
    // КОНФИГУРАЦИЯ PHASER
    // ============================================
    
+   // ✅ ПРОВЕРЯЕМ, ЧТО СЦЕНЫ ОПРЕДЕЛЕНЫ
+   if (typeof BootScene === 'undefined') {
+       console.error('❌ BootScene не определен!');
+       showFatalError('BootScene не загружен. Перезагрузите страницу.');
+       return;
+   }
+   
+   if (typeof GameScene === 'undefined' && typeof window.GameScene !== 'undefined') {
+       // Используем window.GameScene если он есть
+       var GameSceneClass = window.GameScene;
+   } else if (typeof GameScene !== 'undefined') {
+       var GameSceneClass = GameScene;
+   } else {
+       console.error('❌ GameScene не определен!');
+       showFatalError('GameScene не загружен. Перезагрузите страницу.');
+       return;
+   }
+   
    const config = {
        type: Phaser.AUTO,
        width: window.innerWidth,
        height: window.innerHeight,
        backgroundColor: '#1a2a3a',
        parent: 'game-container',
-       scene: [BootScene, GameScene],
+       scene: [BootScene, GameSceneClass],
        scale: {
            mode: Phaser.Scale.RESIZE,
            autoCenter: Phaser.Scale.CENTER_BOTH,
@@ -64,7 +100,6 @@
            antialias: true,
            roundPixels: true
        },
-       // Включаем физику для эффектов
        physics: {
            default: 'arcade',
            arcade: {
@@ -72,13 +107,11 @@
                debug: false
            }
        },
-       // Оптимизация
        fps: {
            target: 60,
            forceSetTimeOut: false,
            smoothStep: true
        },
-       // Настройки камеры
        camera: {
            zoom: 1,
            smooth: true
@@ -100,7 +133,7 @@
        console.log('✅ Игра создана успешно');
    } catch (error) {
        console.error('❌ Ошибка создания игры:', error);
-       showFatalError('Не удалось создать игру');
+       showFatalError('Не удалось создать игру: ' + error.message);
        return;
    }
    
@@ -108,7 +141,7 @@
    window.__game = game;
    window.__gameScenes = {
        boot: BootScene,
-       game: GameScene
+       game: GameSceneClass
    };
    
    // ============================================
@@ -118,7 +151,6 @@
    let resizeTimeout = null;
    
    window.addEventListener('resize', () => {
-       // Троттлинг ресайза
        if (resizeTimeout) {
            clearTimeout(resizeTimeout);
        }
@@ -128,7 +160,6 @@
                game.scale.resize(window.innerWidth, window.innerHeight);
                console.log('📐 Размер обновлен:', window.innerWidth, 'x', window.innerHeight);
                
-               // Уведомляем сцену о ресайзе
                try {
                    const scene = game.scene.getScene('GameScene');
                    if (scene && typeof scene.onResize === 'function') {
@@ -199,13 +230,11 @@
    // ОБРАБОТКА ОШИБОК
    // ============================================
    
-   // Глобальный обработчик ошибок
    window.addEventListener('error', (event) => {
        console.error('🔥 Глобальная ошибка:', event.error || event.message);
        showError('Произошла ошибка. Проверьте консоль.');
    });
    
-   // Обработка необработанных промисов
    window.addEventListener('unhandledrejection', (event) => {
        console.error('🔥 Необработанный промис:', event.reason);
        showError('Ошибка в асинхронном коде. Проверьте консоль.');
@@ -215,9 +244,6 @@
    // ВСПОМОГАТЕЛЬНЫЕ ФУНКЦИИ
    // ============================================
    
-   /**
-    * Показать фатальную ошибку
-    */
    function showFatalError(message) {
        const container = document.getElementById('game-container');
        if (container) {
@@ -251,13 +277,9 @@
        console.error('💥 Фатальная ошибка:', message);
    }
    
-   /**
-    * Показать ошибку
-    */
    function showError(message) {
        const container = document.getElementById('game-container');
        if (container) {
-           // Ищем или создаем элемент ошибки
            let errorEl = document.getElementById('game-error');
            if (!errorEl) {
                errorEl = document.createElement('div');
@@ -283,7 +305,6 @@
            errorEl.textContent = `⚠️ ${message}`;
            errorEl.style.display = 'block';
            
-           // Автоматически скрываем через 5 секунд
            setTimeout(() => {
                if (errorEl) {
                    errorEl.style.display = 'none';
@@ -296,7 +317,6 @@
    // МОНИТОРИНГ ПРОИЗВОДИТЕЛЬНОСТИ
    // ============================================
    
-   // Проверка FPS
    let frameCount = 0;
    let fpsCheckTime = 0;
    
@@ -308,7 +328,6 @@
            const fps = Math.round(frameCount * 1000 / (now - fpsCheckTime));
            if (fps < 30) {
                console.warn(`⚠️ Низкий FPS: ${fps}`);
-               // Можно показать предупреждение пользователю
            }
            frameCount = 0;
            fpsCheckTime = now;
@@ -317,7 +336,6 @@
        requestAnimationFrame(checkPerformance);
    }
    
-   // Запускаем мониторинг производительности (только в режиме отладки)
    if (window.location.search.includes('debug')) {
        setTimeout(checkPerformance, 2000);
    }
@@ -338,7 +356,6 @@
                } else {
                    console.log('✅ GameScene зарегистрирован и готов к работе');
                    
-                   // Проверяем, что сцена активна
                    const scene = game.scene.getScene('GameScene');
                    if (scene) {
                        console.log('✅ GameScene активен');

@@ -1,18 +1,17 @@
-// client/scenes/BootScene.js - ЗАГРУЗОЧНАЯ СЦЕНА (ИСПРАВЛЕННАЯ)
+// client/scenes/BootScene.js - ДОПОЛНИТЕЛЬНОЕ ИСПРАВЛЕНИЕ
 
 class BootScene extends Phaser.Scene {
    constructor() {
        super({ key: 'BootScene' });
        
-       // Флаг для отслеживания состояния
        this.duplicatesRemoved = false;
        this.loadingComplete = false;
+       this.gameSceneRegistered = false;
    }
 
    preload() {
        console.log('🔄 BootScene.preload() - Загрузка ресурсов...');
        
-       // Проверяем и удаляем дублирующийся GameScene
        this.checkAndRemoveDuplicateGameScene();
        
        // Показываем прогресс загрузки
@@ -28,21 +27,18 @@ class BootScene extends Phaser.Scene {
        const width = this.cameras.main.width;
        const height = this.cameras.main.height;
        
-       // Текст загрузки
        const loadingText = this.add.text(width / 2, height / 2 - 60, 'Загрузка...', {
            fontSize: '24px',
            color: '#ffffff',
            fontStyle: 'bold'
        }).setOrigin(0.5);
        
-       // Версия
        this.add.text(width / 2, height / 2 + 60, 'Tank Royale V2.0', {
            fontSize: '16px',
            color: '#88aacc',
            fontStyle: 'italic'
        }).setOrigin(0.5);
        
-       // Прогресс загрузки
        this.load.on('progress', (value) => {
            progressBar.clear();
            progressBar.fillStyle(0x4caf50, 1);
@@ -59,96 +55,58 @@ class BootScene extends Phaser.Scene {
            loadingText.destroy();
            this.loadingComplete = true;
            console.log('✅ Загрузка завершена');
-           
-           // Проверяем корректность GameScene
            this.verifyGameScene();
        });
        
-       // ✅ ИСПРАВЛЕННАЯ ЗАГРУЗКА - используем setTimeout для имитации
+       // Имитация загрузки
        let progress = 0;
        const interval = setInterval(() => {
            progress += 0.05;
            if (progress >= 1) {
                progress = 1;
                clearInterval(interval);
-               // Эмитируем событие завершения
                this.load.emit('complete');
-               // Удаляем обработчик, чтобы не было дублирования
                this.load.off('complete');
            }
            this.load.emit('progress', progress);
        }, 50);
-       
-       // ✅ ЗАГРУЖАЕМ ЗВУКИ (если есть) - безопасно
-       try {
-           // Проверяем, есть ли звуки для загрузки
-           // Если нет - пропускаем
-           console.log('🔇 Звуки не загружены (продолжаем без звука)');
-       } catch (e) {
-           console.log('🔇 Звуки не загружены (продолжаем без звука)');
-       }
    }
 
-   /**
-    * Проверка и удаление дублирующегося GameScene
-    */
    checkAndRemoveDuplicateGameScene() {
        console.log('🔍 Проверка на дублирующиеся классы...');
        
        if (typeof window === 'undefined') return;
        
-       // Проверяем, есть ли дубликат GameScene в window
        const keys = Object.keys(window);
-       let duplicateCount = 0;
-       let gameSceneRef = null;
+       let gameSceneCount = 0;
        
        for (const key of keys) {
            if (key === 'GameScene' && typeof window[key] === 'function') {
-               duplicateCount++;
-               if (duplicateCount === 1) {
-                   gameSceneRef = window[key];
-               }
-               if (duplicateCount > 1) {
-                   console.warn(`⚠️ Найден дубликат GameScene (${duplicateCount})`);
-               }
+               gameSceneCount++;
            }
        }
        
-       // Если есть дубликаты, оставляем только последний
-       if (duplicateCount > 1) {
+       if (gameSceneCount > 1) {
            console.warn('⚠️ Обнаружены дублирующиеся определения GameScene!');
-           console.warn('🔧 Удаляем дубликаты...');
-           
-           // Удаляем все определения GameScene
            for (const key of keys) {
                if (key === 'GameScene') {
                    delete window[key];
                }
            }
-           
-           // Восстанавливаем последнее определение
-           if (gameSceneRef) {
-               window.GameScene = gameSceneRef;
-               console.log('✅ Дубликаты GameScene удалены');
+           // Восстанавливаем GameScene из локальной области
+           if (typeof GameScene !== 'undefined') {
+               window.GameScene = GameScene;
+               console.log('✅ GameScene восстановлен из локальной области');
                this.duplicatesRemoved = true;
-           } else {
-               console.error('❌ Не удалось восстановить GameScene');
            }
+       } else if (typeof window.GameScene === 'undefined' && typeof GameScene !== 'undefined') {
+           window.GameScene = GameScene;
+           console.log('✅ GameScene зарегистрирован в window');
        } else {
            console.log('✅ Дубликатов GameScene не найдено');
        }
-       
-       // Если GameScene не зарегистрирован, пробуем найти его в локальной области
-       if (typeof window.GameScene === 'undefined' && typeof GameScene !== 'undefined') {
-           console.log('🔧 Регистрируем GameScene из локальной области');
-           window.GameScene = GameScene;
-           this.duplicatesRemoved = true;
-       }
    }
 
-   /**
-    * Проверка корректности GameScene
-    */
    verifyGameScene() {
        console.log('🔍 Проверка GameScene...');
        
@@ -163,13 +121,11 @@ class BootScene extends Phaser.Scene {
            return;
        }
        
-       // Проверяем, что GameScene является классом
        if (typeof GameSceneClass !== 'function') {
            console.error('❌ GameScene не является функцией/классом!');
            return;
        }
        
-       // Проверяем, что у GameScene есть метод create
        try {
            const instance = new GameSceneClass();
            if (typeof instance.create !== 'function') {
@@ -200,43 +156,50 @@ class BootScene extends Phaser.Scene {
            console.log('📋 Зарегистрированные сцены:', sceneKeys);
            
            if (!sceneKeys.includes('GameScene')) {
-               console.warn('⚠️ GameScene не зарегистрирован в Phaser!');
                console.log('🔧 Регистрируем GameScene...');
-               this.scene.add('GameScene', window.GameScene, true);
+               // Проверяем, не зарегистрирована ли уже сцена с таким ключом
+               if (!this.scene.get('GameScene')) {
+                   this.scene.add('GameScene', window.GameScene, true);
+                   this.gameSceneRegistered = true;
+                   console.log('✅ GameScene зарегистрирован');
+               } else {
+                   console.log('✅ GameScene уже зарегистрирован');
+                   this.gameSceneRegistered = true;
+               }
            } else {
-               console.log('✅ GameScene зарегистрирован');
+               console.log('✅ GameScene уже зарегистрирован');
+               this.gameSceneRegistered = true;
            }
        } catch (error) {
            console.warn('⚠️ Ошибка проверки сцен:', error);
-           // Пробуем добавить сцену принудительно
            try {
-               this.scene.add('GameScene', window.GameScene, true);
+               if (!this.scene.get('GameScene')) {
+                   this.scene.add('GameScene', window.GameScene, true);
+                   this.gameSceneRegistered = true;
+               }
            } catch (e) {
                console.error('❌ Не удалось зарегистрировать GameScene:', e);
+               this.showErrorAndReload('Не удалось зарегистрировать игровую сцену.');
+               return;
            }
        }
        
-       // Переходим в игровую сцену
+       // Запускаем игровую сцену
        console.log('🚀 Запуск GameScene...');
        try {
-           this.scene.start('GameScene');
-           console.log('✅ GameScene запущена');
+           // Проверяем, не запущена ли уже сцена
+           if (!this.scene.isActive('GameScene')) {
+               this.scene.start('GameScene');
+               console.log('✅ GameScene запущена');
+           } else {
+               console.log('✅ GameScene уже активна');
+           }
        } catch (error) {
            console.error('❌ Ошибка запуска GameScene:', error);
-           // Если не удалось запустить - создаем вручную
-           try {
-               this.scene.add('GameScene', window.GameScene);
-               this.scene.start('GameScene');
-           } catch (e) {
-               console.error('❌ Критическая ошибка запуска:', e);
-               this.showErrorAndReload('Не удалось запустить игру. Перезагрузите страницу.');
-           }
+           this.showErrorAndReload('Не удалось запустить игру.');
        }
    }
 
-   /**
-    * Показать ошибку и предложить перезагрузку
-    */
    showErrorAndReload(message) {
        const width = this.cameras.main.width;
        const height = this.cameras.main.height;
@@ -271,21 +234,9 @@ class BootScene extends Phaser.Scene {
        });
    }
 
-   /**
-    * Обновление (вызывается каждый кадр)
-    */
-   update(time, delta) {
-       // Дополнительная логика при необходимости
-   }
-
-   /**
-    * Очистка сцены
-    */
    shutdown() {
-       // Очищаем события загрузки
        this.load.off('progress');
        this.load.off('complete');
-       
        console.log('🧹 BootScene очищена');
    }
 }

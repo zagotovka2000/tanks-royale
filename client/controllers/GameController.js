@@ -1,4 +1,4 @@
-// client/controllers/GameController.js - ИСПРАВЛЕННАЯ ВЕРСИЯ
+// client/controllers/GameController.js - ПОЛНАЯ ВЕРСИЯ
 
 class GameController {
    constructor(scene, socket) {
@@ -272,28 +272,42 @@ class GameController {
    }
 
    // ============================================
-   // ОБРАБОТЧИКИ СОБЫТИЙ
+   // ✅ ОБРАБОТЧИКИ СОБЫТИЙ (ИСПРАВЛЕНЫ)
    // ============================================
 
    onMoveAccepted(data) {
-       console.log('✅ Движение подтверждено:', data);
+       console.log('✅ Движение подтверждено:', data.unitId, 'from:', data.fromQ, data.fromR, 'to:', data.toQ, data.toR);
        this.isWaitingForResponse = false;
        
-       var player = this.gameInstance.getFirstPlayer();
-       if (player && player.id === data.unitId) {
-           var fromQ = player.q;
-           var fromR = player.r;
-           
-           player.q = data.toQ;
-           player.r = data.toR;
-           player.direction = data.direction || 'right';
-           
-           this.gameInstance.setLastPosition(player.id, fromQ, fromR);
+       const game = this.gameInstance;
+       if (!game) {
+           console.warn('⚠️ Игра не инициализирована');
+           return;
        }
        
-       this.updateGameState();
-       this.updateUI();
+       const unit = game.getUnitById(data.unitId);
+       if (!unit) {
+           console.warn('⚠️ Юнит не найден:', data.unitId);
+           return;
+       }
        
+       // ✅ СОХРАНЯЕМ СТАРУЮ ПОЗИЦИЮ
+       game.setLastPosition(data.unitId, data.fromQ, data.fromR);
+       
+       // ✅ ОБНОВЛЯЕМ ПОЗИЦИЮ ЮНИТА
+       unit.q = data.toQ;
+       unit.r = data.toR;
+       unit.direction = data.direction || 'right';
+       
+       // ✅ ОБНОВЛЯЕМ СОСТОЯНИЕ И ВЫЗЫВАЕМ ПЕРЕРИСОВКУ
+       this.updateGameState();
+       
+       // Если это игрок - обновляем UI
+       if (unit.isPlayer) {
+           this.updateUI();
+       }
+       
+       // Отвечаем на callback если был
        var requestId = data.requestId || '';
        var cb = this.moveCallbacks.get(requestId);
        if (cb) {

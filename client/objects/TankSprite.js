@@ -1,4 +1,4 @@
-// client/objects/TankSprite.js - ПОЛНАЯ ВЕРСИЯ С ПОВОРОТОМ ГУСЕНИЦ, СТВОЛА, ЗВУКАМИ И РАБОЧИМИ АНИМАЦИЯМИ
+// client/objects/TankSprite.js - ИСПРАВЛЕННАЯ ВЕРСИЯ
 
 class TankSprite {
    constructor(scene, unit, hexGrid, animationEngine) {
@@ -10,7 +10,7 @@ class TankSprite {
        this.container = null;
        this.bodyGroup = null;
        this.turretGroup = null;
-       this.tracksGroup = null; // ✅ ГРУППА ДЛЯ ГУСЕНИЦ
+       this.tracksGroup = null;
        this.barrel = null;
        this.hpBar = null;
        this.hpBarBg = null;
@@ -20,8 +20,9 @@ class TankSprite {
        this.color = null;
        this.currentDirection = unit.direction || 'right';
        this.turretDirection = unit.direction || 'right';
-       this.tracksDirection = unit.direction || 'right'; // ✅ НАПРАВЛЕНИЕ ГУСЕНИЦ
+       this.tracksDirection = unit.direction || 'right';
        this._isAnimating = false;
+       this._animationStartTime = null;
        this.animationId = `tank_${unit.id}`;
        
        this.moveDuration = 1500;
@@ -30,11 +31,16 @@ class TankSprite {
        
        this.onMoveComplete = null;
        this.onRotateComplete = null;
+       this.isPlayer = unit.isPlayer || false;
        
-       // ✅ ЗВУКИ
+       // Звуки
        this.moveSound = null;
        this.shootSound = null;
    }
+
+   // ============================================
+   // ОСНОВНЫЕ МЕТОДЫ
+   // ============================================
 
    isAnimating() {
        return this._isAnimating;
@@ -50,10 +56,9 @@ class TankSprite {
        else this.size = 30;
        
        this.container = this.scene.add.container(pos.x, pos.y);
-       this.container.setDepth(this.unit.isPlayer ? 10 : 5);
+       this.container.setDepth(this.isPlayer ? 10 : 5);
        this.container.setSize(this.size * 2.5, this.size * 2.5);
        
-       // ✅ СОЗДАЕМ ГРУППУ ДЛЯ КОРПУСА С ГУСЕНИЦАМИ
        this.bodyGroup = this.scene.add.container(0, 0);
        this.container.add(this.bodyGroup);
        
@@ -62,22 +67,22 @@ class TankSprite {
        this.createHPBar();
        this.createEffects();
        
-       // ✅ Устанавливаем начальное направление
        this.setTracksDirection(this.currentDirection, false);
        this.setTurretDirection(this.currentDirection, false);
        
-       // ✅ СОЗДАЕМ ЗВУКИ
        this.createSounds();
        
        return this.container;
    }
 
-   // ✅ СОЗДАНИЕ КОРПУСА С ГУСЕНИЦАМИ
+   // ============================================
+   // СОЗДАНИЕ КОМПОНЕНТОВ
+   // ============================================
+
    createBody() {
        const s = this.size;
        const color = this.color;
        
-       // Основной корпус (без гусениц)
        const body = this.scene.make.graphics({});
        body.fillStyle(color.color, 1);
        body.fillRoundedRect(-s * 0.9, -s * 0.5, s * 1.8, s * 1.0, 6);
@@ -93,7 +98,6 @@ class TankSprite {
        
        this.bodyGroup.add(body);
        
-       // ✅ ГУСЕНИЦЫ - ОТДЕЛЬНАЯ ГРУППА ДЛЯ ПОВОРОТА
        this.tracksGroup = this.scene.add.container(0, 0);
        this.bodyGroup.add(this.tracksGroup);
        
@@ -101,19 +105,16 @@ class TankSprite {
        this.createWheels();
    }
 
-   // ✅ СОЗДАНИЕ ГУСЕНИЦ (БЕЗ ПРИВЯЗКИ К КОРПУСУ)
    createTracks() {
        const s = this.size;
        const g = this.scene.make.graphics({});
        
-       // Левые гусеницы
        g.fillStyle(0x2a2a2a, 1);
        g.fillRoundedRect(-s * 1.0, -s * 0.65, s * 0.3, s * 0.35, 3);
        g.fillRoundedRect(-s * 1.0, s * 0.3, s * 0.3, s * 0.35, 3);
        g.fillRoundedRect(s * 0.7, -s * 0.65, s * 0.3, s * 0.35, 3);
        g.fillRoundedRect(s * 0.7, s * 0.3, s * 0.3, s * 0.35, 3);
        
-       // Детали гусениц
        g.fillStyle(0x444444, 1);
        for (let i = -2; i <= 2; i++) {
            const x1 = -s * 0.95 + i * s * 0.12;
@@ -127,7 +128,6 @@ class TankSprite {
        this.tracksGroup.add(g);
    }
 
-   // ✅ СОЗДАНИЕ КОЛЕС
    createWheels() {
        const s = this.size;
        const g = this.scene.make.graphics({});
@@ -150,14 +150,101 @@ class TankSprite {
        this.tracksGroup.add(g);
    }
 
-   // ✅ СОЗДАНИЕ ЗВУКОВЫХ ЭФФЕКТОВ
+   createTurret() {
+       const s = this.size;
+       const color = this.color;
+       
+       this.turretGroup = this.scene.add.container(0, -s * 0.05);
+       this.container.add(this.turretGroup);
+       
+       const turret = this.scene.make.graphics({});
+       const turretColor = this.lightenColor(color.color, 50);
+       turret.fillStyle(turretColor, 1);
+       turret.fillCircle(0, 0, s * 0.65);
+       turret.fillStyle(0xffffff, 0.08);
+       turret.fillCircle(-s * 0.15, -s * 0.15, s * 0.3);
+       turret.fillStyle(0x000000, 0.1);
+       turret.fillCircle(s * 0.15, s * 0.15, s * 0.35);
+       this.turretGroup.add(turret);
+       
+       this.barrel = this.scene.make.graphics({});
+       const barrelLength = s * 1.2;
+       const barrelWidth = s * 0.1;
+       
+       this.barrel.fillStyle(0x444444, 1);
+       this.barrel.fillRoundedRect(0, -barrelWidth/2, barrelLength, barrelWidth, 3);
+       this.barrel.fillStyle(0x333333, 1);
+       this.barrel.fillRoundedRect(barrelLength - s * 0.2, -barrelWidth/2 - 0.02 * s, s * 0.2, barrelWidth + 0.04 * s, 2);
+       this.barrel.fillStyle(0x222222, 1);
+       this.barrel.fillRoundedRect(barrelLength - s * 0.08, -barrelWidth/2 - 0.01 * s, s * 0.08, barrelWidth + 0.02 * s, 2);
+       this.barrel.fillStyle(0x888888, 0.2);
+       this.barrel.fillRoundedRect(s * 0.1, -barrelWidth/4, s * 0.6, barrelWidth/2, 2);
+       
+       this.turretGroup.add(this.barrel);
+       
+       const hatch = this.scene.make.graphics({});
+       hatch.fillStyle(0x555555, 1);
+       hatch.fillCircle(s * 0.2, -s * 0.15, s * 0.12);
+       hatch.fillStyle(0x777777, 0.5);
+       hatch.fillCircle(s * 0.18, -s * 0.17, s * 0.05);
+       this.turretGroup.add(hatch);
+   }
+
+   createHPBar() {
+       const s = this.size;
+       
+       this.hpBarBg = this.scene.make.graphics({});
+       this.hpBarBg.fillStyle(0x222222, 0.9);
+       this.hpBarBg.fillRoundedRect(-s * 0.9, -s * 1.4, s * 1.8, s * 0.22, 4);
+       this.container.add(this.hpBarBg);
+       
+       const frame = this.scene.make.graphics({});
+       frame.lineStyle(2, 0x444444, 0.8);
+       frame.strokeRoundedRect(-s * 0.9, -s * 1.4, s * 1.8, s * 0.22, 4);
+       this.container.add(frame);
+       
+       this.hpBar = this.scene.make.graphics({});
+       this.updateHPBar();
+       this.container.add(this.hpBar);
+       
+       this.hpText = this.scene.add.text(0, -s * 1.3, 
+           `${Math.ceil(this.unit.hp)}/${this.unit.maxHp}`, {
+           fontSize: '12px',
+           color: '#ffffff',
+           stroke: '#000000',
+           strokeThickness: 3,
+           fontStyle: 'bold'
+       }).setOrigin(0.5);
+       this.container.add(this.hpText);
+   }
+
+   createEffects() {
+       const s = this.size;
+       
+       if (this.isPlayer) {
+           const star = this.scene.make.graphics({});
+           star.fillStyle(0xffd700, 0.6);
+           this.drawStar(star, 0, -s * 0.05, 5, s * 0.2, s * 0.08);
+           this.container.add(star);
+           
+           const glow = this.scene.make.graphics({});
+           glow.fillStyle(0x44ff44, 0.06);
+           glow.fillCircle(0, 0, s * 2.2);
+           this.container.add(glow);
+           
+           const ring = this.scene.make.graphics({});
+           ring.lineStyle(2, 0x44ff44, 0.3);
+           ring.strokeCircle(0, 0, s * 1.6);
+           this.container.add(ring);
+       }
+   }
+
    createSounds() {
        try {
            this.moveSound = this.createMoveSound();
            this.shootSound = this.createShootSound();
-           console.log('🔊 Звуки созданы для танка', this.unit.id);
        } catch (e) {
-           console.warn('⚠️ Не удалось создать звуки:', e);
+           // Игнорируем ошибки звука
        }
    }
 
@@ -208,103 +295,14 @@ class TankSprite {
            gain.connect(ctx.destination);
            source.start();
        } catch (e) {
-           // Игнорируем ошибки звука
+           // Игнорируем ошибки
        }
    }
 
-   // ✅ СОЗДАНИЕ БАШНИ
-   createTurret() {
-       const s = this.size;
-       const color = this.color;
-       
-       this.turretGroup = this.scene.add.container(0, -s * 0.05);
-       this.container.add(this.turretGroup);
-       
-       const turret = this.scene.make.graphics({});
-       const turretColor = this.lightenColor(color.color, 50);
-       turret.fillStyle(turretColor, 1);
-       turret.fillCircle(0, 0, s * 0.65);
-       turret.fillStyle(0xffffff, 0.08);
-       turret.fillCircle(-s * 0.15, -s * 0.15, s * 0.3);
-       turret.fillStyle(0x000000, 0.1);
-       turret.fillCircle(s * 0.15, s * 0.15, s * 0.35);
-       this.turretGroup.add(turret);
-       
-       this.barrel = this.scene.make.graphics({});
-       const barrelLength = s * 1.2;
-       const barrelWidth = s * 0.1;
-       
-       this.barrel.fillStyle(0x444444, 1);
-       this.barrel.fillRoundedRect(0, -barrelWidth/2, barrelLength, barrelWidth, 3);
-       this.barrel.fillStyle(0x333333, 1);
-       this.barrel.fillRoundedRect(barrelLength - s * 0.2, -barrelWidth/2 - 0.02 * s, s * 0.2, barrelWidth + 0.04 * s, 2);
-       this.barrel.fillStyle(0x222222, 1);
-       this.barrel.fillRoundedRect(barrelLength - s * 0.08, -barrelWidth/2 - 0.01 * s, s * 0.08, barrelWidth + 0.02 * s, 2);
-       this.barrel.fillStyle(0x888888, 0.2);
-       this.barrel.fillRoundedRect(s * 0.1, -barrelWidth/4, s * 0.6, barrelWidth/2, 2);
-       
-       this.turretGroup.add(this.barrel);
-       
-       const hatch = this.scene.make.graphics({});
-       hatch.fillStyle(0x555555, 1);
-       hatch.fillCircle(s * 0.2, -s * 0.15, s * 0.12);
-       hatch.fillStyle(0x777777, 0.5);
-       hatch.fillCircle(s * 0.18, -s * 0.17, s * 0.05);
-       this.turretGroup.add(hatch);
-   }
+   // ============================================
+   // УПРАВЛЕНИЕ НАПРАВЛЕНИЕМ
+   // ============================================
 
-   // ✅ СОЗДАНИЕ ПОЛОСЫ HP
-   createHPBar() {
-       const s = this.size;
-       
-       this.hpBarBg = this.scene.make.graphics({});
-       this.hpBarBg.fillStyle(0x222222, 0.9);
-       this.hpBarBg.fillRoundedRect(-s * 0.9, -s * 1.4, s * 1.8, s * 0.22, 4);
-       this.container.add(this.hpBarBg);
-       
-       const frame = this.scene.make.graphics({});
-       frame.lineStyle(2, 0x444444, 0.8);
-       frame.strokeRoundedRect(-s * 0.9, -s * 1.4, s * 1.8, s * 0.22, 4);
-       this.container.add(frame);
-       
-       this.hpBar = this.scene.make.graphics({});
-       this.updateHPBar();
-       this.container.add(this.hpBar);
-       
-       this.hpText = this.scene.add.text(0, -s * 1.3, 
-           `${Math.ceil(this.unit.hp)}/${this.unit.maxHp}`, {
-           fontSize: '12px',
-           color: '#ffffff',
-           stroke: '#000000',
-           strokeThickness: 3,
-           fontStyle: 'bold'
-       }).setOrigin(0.5);
-       this.container.add(this.hpText);
-   }
-
-   // ✅ СОЗДАНИЕ ЭФФЕКТОВ (звезда, свечение, кольцо)
-   createEffects() {
-       const s = this.size;
-       
-       if (this.unit.isPlayer) {
-           const star = this.scene.make.graphics({});
-           star.fillStyle(0xffd700, 0.6);
-           this.drawStar(star, 0, -s * 0.05, 5, s * 0.2, s * 0.08);
-           this.container.add(star);
-           
-           const glow = this.scene.make.graphics({});
-           glow.fillStyle(0x44ff44, 0.06);
-           glow.fillCircle(0, 0, s * 2.2);
-           this.container.add(glow);
-           
-           const ring = this.scene.make.graphics({});
-           ring.lineStyle(2, 0x44ff44, 0.3);
-           ring.strokeCircle(0, 0, s * 1.6);
-           this.container.add(ring);
-       }
-   }
-
-   // ✅ УСТАНОВКА НАПРАВЛЕНИЯ ГУСЕНИЦ
    setTracksDirection(direction, animate = true) {
        this.tracksDirection = direction;
        const angle = this.getAngle(direction);
@@ -321,7 +319,6 @@ class TankSprite {
        }
    }
 
-   // ✅ УСТАНОВКА НАПРАВЛЕНИЯ БАШНИ
    setTurretDirection(direction, animate = true) {
        this.turretDirection = direction;
        const angle = this.getAngle(direction);
@@ -331,35 +328,33 @@ class TankSprite {
                targets: this.turretGroup,
                rotation: angle,
                duration: this.rotateDuration,
-               ease: 'Quadratic.Out',
-               onComplete: () => {
-                   if (this.onRotateComplete) this.onRotateComplete();
-               }
+               ease: 'Quadratic.Out'
            });
        } else {
            this.turretGroup.setRotation(angle);
        }
    }
 
-   // ✅ ДВИЖЕНИЕ - ПОВОРАЧИВАЕМ И ГУСЕНИЦЫ, И КОРПУС
+   // ============================================
+   // ДВИЖЕНИЕ
+   // ============================================
+
    moveTo(fromQ, fromR, toQ, toR, duration = null, onComplete = null) {
        const from = this.hexGrid.hexToPixel(fromQ, fromR);
        const to = this.hexGrid.hexToPixel(toQ, toR);
        const dir = HexUtils.getDirection(fromQ, fromR, toQ, toR);
        
-       this.unit.q = toQ;
-       this.unit.r = toR;
        this.currentDirection = dir;
-       
        const animDuration = duration || this.moveDuration;
        const jumpHeight = this.jumpHeight;
        
        this._isAnimating = true;
+       this._animationStartTime = Date.now();
        
-       // ✅ ПОВОРАЧИВАЕМ КОРПУС (ГУСЕНИЦЫ) В НАПРАВЛЕНИИ ДВИЖЕНИЯ
+       // Поворачиваем корпус
        this.setTracksDirection(dir, true);
        
-       // ✅ ПОВОРАЧИВАЕМ СТВОЛ В НАПРАВЛЕНИИ ДВИЖЕНИЯ
+       // Поворачиваем ствол
        this.setTurretDirection(dir, true);
        
        // Звук движения
@@ -389,7 +384,7 @@ class TankSprite {
                self.container.x = currentX;
                self.container.y = baseY - jump;
                
-               // Добавляем небольшой поворот для эффекта
+               // Небольшой наклон
                if (progress > 0 && progress < 1) {
                    const tiltAngle = Math.sin(progress * Math.PI * 2) * 0.02;
                    self.container.rotation = tiltAngle;
@@ -400,9 +395,7 @@ class TankSprite {
                self.container.y = endY;
                self.container.rotation = 0;
                self._isAnimating = false;
-               
-               // ✅ ГУСЕНИЦЫ И СТВОЛ ОСТАЮТСЯ В НАПРАВЛЕНИИ ДВИЖЕНИЯ
-               // (уже установлено через setTracksDirection и setTurretDirection)
+               self._animationStartTime = null;
                
                if (self.onMoveComplete) self.onMoveComplete();
                if (onComplete) onComplete();
@@ -410,62 +403,24 @@ class TankSprite {
        });
    }
 
-   // ✅ АЛИАС ДЛЯ СОВМЕСТИМОСТИ
-   animateMove(fromQ, fromR, toQ, toR, duration = null, onComplete = null) {
-       this.moveTo(fromQ, fromR, toQ, toR, duration, onComplete);
-   }
+   // ============================================
+   // СТРЕЛЬБА
+   // ============================================
 
-   // ✅ ПОВОРОТ БАШНИ
-   rotateTurret(direction, duration = null, onComplete = null) {
-       this.setTurretDirection(direction, true);
-       if (onComplete) {
-           setTimeout(onComplete, this.rotateDuration);
-       }
-   }
-
-   // ✅ ВЫСТРЕЛ - ПОВОРАЧИВАЕТСЯ ТОЛЬКО СТВОЛ (ГУСЕНИЦЫ НЕ ДВИГАЮТСЯ)
    shootAt(targetQ, targetR, onComplete = null) {
        const fromQ = this.unit.q;
        const fromR = this.unit.r;
        const dir = HexUtils.getDirection(fromQ, fromR, targetQ, targetR);
        
-       // ✅ ПОВОРАЧИВАЕМ ТОЛЬКО СТВОЛ
+       // Поворачиваем только ствол
        this.setTurretDirection(dir, true);
        
        // Звук выстрела
        this.playSound(this.shootSound, 0.2);
        
-       // Анимация отдачи
-       const recoilDistance = -this.size * 0.3;
-       
-       this.scene.tweens.add({
-           targets: this.turretGroup,
-           x: recoilDistance,
-           duration: 100,
-           ease: 'Quadratic.Out',
-           onComplete: () => {
-               this.scene.tweens.add({
-                   targets: this.turretGroup,
-                   x: 0,
-                   duration: 200,
-                   ease: 'Quadratic.InOut',
-                   onComplete: () => {
-                       // ✅ СТВОЛ ОСТАЕТСЯ В НАПРАВЛЕНИИ ВЫСТРЕЛА
-                       if (onComplete) onComplete();
-                   }
-               });
-           }
-       });
-   }
-
-   // ✅ ВЫСТРЕЛ (БЕЗ ЦЕЛИ - ДЛЯ СОВМЕСТИМОСТИ)
-   shoot(onComplete = null) {
-       const recoilDistance = -this.size * 0.3;
-       
-       // Звук выстрела
-       this.playSound(this.shootSound, 0.2);
-       
        // Отдача
+       const recoilDistance = -this.size * 0.3;
+       
        this.scene.tweens.add({
            targets: this.turretGroup,
            x: recoilDistance,
@@ -485,7 +440,10 @@ class TankSprite {
        });
    }
 
-   // ✅ ОБНОВЛЕННЫЙ updateHPBar
+   // ============================================
+   // ОБНОВЛЕНИЕ
+   // ============================================
+
    updateHPBar() {
        if (!this.hpBar || !this.unit) return;
        
@@ -509,7 +467,6 @@ class TankSprite {
        }
    }
 
-   // ✅ ОБНОВЛЕНИЕ ПОЗИЦИИ
    updatePosition(q, r, direction = null) {
        const pos = this.hexGrid.hexToPixel(q, r);
        this.container.setPosition(pos.x, pos.y);
@@ -520,15 +477,16 @@ class TankSprite {
            this.currentDirection = direction;
            this.tracksDirection = direction;
            this.turretDirection = direction;
-           
-           // ✅ ОБНОВЛЯЕМ НАПРАВЛЕНИЕ ГУСЕНИЦ И СТВОЛА
            this.setTracksDirection(direction, false);
            this.setTurretDirection(direction, false);
        }
        this.updateHPBar();
    }
 
-   // ✅ ПОЛУЧЕНИЕ УГЛА ПО НАПРАВЛЕНИЮ
+   // ============================================
+   // ВСПОМОГАТЕЛЬНЫЕ МЕТОДЫ
+   // ============================================
+
    getAngle(direction) {
        const map = {
            'right': 0,
@@ -541,7 +499,6 @@ class TankSprite {
        return map[direction] || 0;
    }
 
-   // ✅ ВСПОМОГАТЕЛЬНЫЕ МЕТОДЫ
    lightenColor(color, amount) {
        const r = (color >> 16) & 0xFF;
        const g = (color >> 8) & 0xFF;
@@ -567,15 +524,14 @@ class TankSprite {
        graphics.fillPath();
    }
 
-   // ✅ ОСТАНОВКА ВСЕХ АНИМАЦИЙ
    stopAllAnimations() {
        this.scene.tweens.killTweensOf(this.container);
        this.scene.tweens.killTweensOf(this.turretGroup);
        this.scene.tweens.killTweensOf(this.tracksGroup);
        this._isAnimating = false;
+       this._animationStartTime = null;
    }
 
-   // ✅ УНИЧТОЖЕНИЕ
    destroy() {
        this.stopAllAnimations();
        
@@ -599,6 +555,7 @@ class TankSprite {
    }
 }
 
+// Экспорт
 if (typeof window !== 'undefined') {
    window.TankSprite = TankSprite;
    console.log('✅ TankSprite зарегистрирован в window');

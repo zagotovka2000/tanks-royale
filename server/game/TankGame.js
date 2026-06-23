@@ -259,7 +259,8 @@ class TankGame {
            direction: 'right',
            kills: 0,
            isPlayer: true,
-           isBot: false
+           isBot: false,
+           permanent: true
        };
        this.players.push(player1);
        
@@ -625,6 +626,20 @@ class TankGame {
        this.setLastPosition(player.id, player.q, player.r);
        
        return player;
+   }
+   
+   // ============================================
+   // УДАЛЕНИЕ ИГРОКА
+   // ============================================
+   
+   removePlayer(id) {
+       const index = this.players.findIndex(p => p.id === id);
+       if (index === -1) return false;
+       if (this.players[index].permanent) return false;
+       
+       this.players.splice(index, 1);
+       this.updateEnemiesList();
+       return true;
    }
    
    // ============================================

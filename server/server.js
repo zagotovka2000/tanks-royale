@@ -35,7 +35,6 @@ const gameService = new GameService();
 gameService.createGame();
 
 const botController = new BotController(gameService, io);
-botController.start();
 
 const gameController = new ServerGameController(io, gameService, botController);
 
@@ -53,7 +52,8 @@ io.on('connection', (socket) => {
         const team = data.team || 'player';
         
         // Добавляем игрока в игру
-        const player = gameService.addPlayer(playerId, playerName, team);
+        const game = gameService.getGame();
+        const player = game ? game.addPlayer(playerId, playerName, team) : null;
         if (player) {
             connectedPlayers.set(socket.id, { playerId, team });
             console.log(`👤 Игрок зарегистрирован: ${playerName} (${playerId})`);
@@ -119,7 +119,7 @@ app.use(express.json());
 // Добавление бота через API
 app.post('/api/bot/add', (req, res) => {
     const botData = req.body;
-    const bot = gameService.addBot(botData);
+    const bot = botController.addBot(botData);
     if (bot) {
         res.json({ success: true, bot });
     } else {

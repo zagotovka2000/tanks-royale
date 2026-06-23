@@ -12,6 +12,9 @@ class GameService {
    }
    
    createGame() {
+       if (this.currentGame) {
+           this.currentGame.stopBots();
+       }
        this.currentGame = new TankGame();
        this.confirmedMoves.clear();
        

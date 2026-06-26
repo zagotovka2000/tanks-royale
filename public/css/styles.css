@@ -1,5 +1,3 @@
-/* public/css/styles.css - ПОЛНОСТЬЮ ИСПРАВЛЕННАЯ ВЕРСИЯ */
-
 * {
    margin: 0;
    padding: 0;
@@ -8,532 +6,516 @@
 }
 
 body {
-   background: #0a0a1a;
-   overflow: hidden;
+   background: linear-gradient(135deg, #0a0a1a 0%, #1a1a2e 100%);
    font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
-}
-
-#game-container {
-   width: 100vw;
-   height: 100vh;
+   min-height: 100vh;
    display: flex;
    justify-content: center;
    align-items: center;
+   overflow: hidden;
+   touch-action: pinch-zoom;
 }
 
-/* HUD */
-#hud {
-   position: fixed;
-   top: 20px;
-   left: 50%;
-   transform: translateX(-50%);
-   color: white;
-   font-size: 16px;
-   z-index: 10;
-   background: rgba(0, 0, 0, 0.7);
-   backdrop-filter: blur(10px);
-   padding: 12px 24px;
-   border-radius: 16px;
-   display: flex;
-   align-items: center;
-   gap: 20px;
-   border: 1px solid rgba(255, 255, 255, 0.1);
-   pointer-events: none;
-   font-weight: bold;
-}
-
-#hud .hp {
-   color: #4caf50;
-}
-
-#hud .kills {
-   color: #ffd93d;
-}
-
-#hud #enemiesValue {
-   color: #e94560;
-}
-
-#cooldownText {
-   color: #4caf50;
-}
-
-/* Индикатор режима */
-#mode-indicator {
-   position: fixed;
-   bottom: 30px;
-   left: 50%;
-   transform: translateX(-50%);
-   color: #4caf50;
-   font-size: 18px;
-   font-weight: bold;
-   z-index: 10;
-   background: rgba(0, 0, 0, 0.8);
-   backdrop-filter: blur(10px);
-   padding: 10px 30px;
-   border-radius: 30px;
-   border: 2px solid #4caf50;
-   pointer-events: none;
-   transition: all 0.3s;
-   letter-spacing: 1px;
-}
-
-#mode-indicator.shoot-mode {
-   border-color: #e94560;
-   color: #e94560;
-}
-
-#mode-indicator.move-mode {
-   border-color: #44ff44;
-   color: #44ff44;
-}
-
-/* Кнопка выстрела */
-#shootBtn {
-   position: fixed;
-   bottom: 100px;
-   right: 30px;
-   width: 80px;
-   height: 80px;
-   border-radius: 50%;
-   background: linear-gradient(135deg, #e94560, #c44569);
-   color: white;
-   font-size: 36px;
-   border: 3px solid rgba(255, 255, 255, 0.3);
-   cursor: pointer;
-   z-index: 10;
-   box-shadow: 0 5px 30px rgba(233, 69, 96, 0.5);
-   transition: all 0.15s;
-   display: flex;
-   justify-content: center;
-   align-items: center;
-}
-
-#shootBtn:active {
-   transform: scale(0.9);
-}
-
-#shootBtn.hidden {
-   display: none;
-}
-
-/* Кнопка сброса */
-#resetBtn {
-   position: fixed;
-   bottom: 30px;
-   right: 30px;
-   width: 50px;
-   height: 50px;
-   border-radius: 50%;
-   background: rgba(0, 0, 0, 0.7);
-   backdrop-filter: blur(5px);
-   color: #ff9800;
-   border: 1px solid rgba(255, 255, 255, 0.1);
-   font-size: 24px;
-   cursor: pointer;
-   z-index: 10;
-   transition: transform 0.1s;
-}
-
-#resetBtn:active {
-   transform: scale(0.9);
-}
-
-/* Game Over */
-#gameover {
+#loadingScreen {
    position: fixed;
    top: 0;
    left: 0;
    width: 100%;
    height: 100%;
-   background: rgba(0, 0, 0, 0.9);
-   display: none;
+   background: linear-gradient(135deg, #0a0a1a, #1a1a2e);
+   display: flex;
+   flex-direction: column;
    justify-content: center;
    align-items: center;
-   z-index: 100;
+   z-index: 1000;
 }
 
-#gameover .card {
-   background: linear-gradient(135deg, #1e1e2e, #2a2a3e);
-   padding: 40px 50px;
-   border-radius: 24px;
-   text-align: center;
-   color: white;
-   max-width: 90%;
-   border: 1px solid rgba(255, 255, 255, 0.05);
-   box-shadow: 0 20px 60px rgba(0, 0, 0, 0.8);
+.loader {
+   width: 60px;
+   height: 60px;
+   border: 4px solid #e94560;
+   border-top-color: transparent;
+   border-radius: 50%;
+   animation: spin 1s linear infinite;
 }
 
-#gameover .card h1 {
-   font-size: 28px;
-   margin-bottom: 15px;
-   color: #e94560;
+@keyframes spin {
+   to { transform: rotate(360deg); }
 }
 
-#gameover .card .winner {
-   font-size: 32px;
-   color: #ffd93d;
-   margin-bottom: 25px;
-   font-weight: bold;
-}
-
-#gameover .card button {
-   padding: 14px 40px;
-   border: none;
-   border-radius: 30px;
-   background: linear-gradient(135deg, #e94560, #c44569);
+#loadingScreen h2 {
+   margin-top: 20px;
    color: white;
    font-size: 18px;
+}
+
+#gameScreen {
+   display: none;
+   width: 100%;
+   height: 100vh;
+   padding: 10px;
+   position: relative;
+   overflow: hidden;
+}
+
+.game-wrapper {
+   width: 100%;
+   height: 100%;
+   display: flex;
+   flex-direction: column;
+   gap: 10px;
+}
+
+.stats-panel {
+   background: rgba(0, 0, 0, 0.85);
+   backdrop-filter: blur(10px);
+   border-radius: 20px;
+   padding: 12px 20px;
+   display: flex;
+   justify-content: space-between;
+   color: white;
    font-weight: bold;
+   flex-wrap: wrap;
+   gap: 10px;
+   z-index: 10;
+}
+
+.stat {
+   display: flex;
+   align-items: center;
+   gap: 8px;
+   font-size: 14px;
+}
+
+.cooldown-bar {
+   background: rgba(0, 0, 0, 0.5);
+   border-radius: 10px;
+   height: 6px;
+   width: 100px;
+   overflow: hidden;
+}
+
+.cooldown-fill {
+   height: 100%;
+   background: #e94560;
+   width: 100%;
+   transition: width 0.1s linear;
+}
+
+.canvas-container {
+   flex: 1;
+   position: relative;
+   width: 100%;
+   min-height: 400px;
+   background: #1a2a3a;
+   border-radius: 16px;
+   overflow: hidden;
+   box-shadow: 0 10px 40px rgba(0, 0, 0, 0.5);
+}
+
+#canvas3d-container {
+   position: absolute;
+   top: 0;
+   left: 0;
+   width: 100%;
+   height: 100%;
+   cursor: grab;
+   touch-action: none;
+}
+
+#canvas3d-container:active {
+   cursor: grabbing;
+}
+
+.controls-panel {
+   background: rgba(0, 0, 0, 0.85);
+   backdrop-filter: blur(10px);
+   border-radius: 60px;
+   padding: 12px 20px;
+   display: flex;
+   justify-content: center;
+   gap: 12px;
+   flex-wrap: wrap;
+   z-index: 10;
+}
+
+.shoot-btn {
+   width: 100px;
+   height: 60px;
+   border-radius: 30px;
+   border: none;
+   font-size: 20px;
+   font-weight: bold;
+   background: #e94560;
+   color: white;
+   cursor: pointer;
+   transition: transform 0.1s, background 0.2s;
+}
+
+.shoot-btn:active {
+   transform: scale(0.95);
+   background: #c44569;
+}
+
+.reset-btn {
+   width: 60px;
+   height: 60px;
+   border-radius: 30px;
+   border: none;
+   font-size: 20px;
+   background: #ff9800;
+   color: white;
    cursor: pointer;
    transition: transform 0.1s;
 }
 
-#gameover .card button:active {
+.reset-btn:active {
    transform: scale(0.95);
 }
 
-/* ============================================ */
-/* ✅ ИСПРАВЛЕННЫЕ СООБЩЕНИЯ - БЕЗ КРАСНОГО ЦВЕТА */
-/* ============================================ */
+.zoom-controls {
+   position: absolute;
+   bottom: 100px;
+   right: 10px;
+   display: flex;
+   flex-direction: column;
+   gap: 8px;
+   z-index: 20;
+}
 
-#messages {
+.zoom-btn {
+   width: 45px;
+   height: 45px;
+   border-radius: 25px;
+   background: rgba(0, 0, 0, 0.7);
+   backdrop-filter: blur(5px);
+   border: none;
+   color: white;
+   font-size: 24px;
+   cursor: pointer;
+   transition: background 0.2s;
+}
+
+.zoom-btn:active {
+   background: rgba(233, 69, 96, 0.8);
+}
+
+.messages {
    position: fixed;
    top: 80px;
    left: 50%;
    transform: translateX(-50%);
-   z-index: 100;
-   text-align: center;
+   z-index: 200;
    pointer-events: none;
-   max-width: 80%;
-   display: flex;
-   flex-direction: column;
-   align-items: center;
-   gap: 4px;
+   text-align: center;
 }
 
-#messages .message {
+.message {
    background: rgba(0, 0, 0, 0.85);
-   backdrop-filter: blur(8px);
-   color: #ffffff;
-   padding: 8px 20px;
-   border-radius: 20px;
-   font-size: 14px;
-   font-weight: 500;
-   display: inline-block;
-   animation: fadeOutUp 2.8s forwards;
-   border: 1px solid rgba(255, 255, 255, 0.08);
-   box-shadow: 0 4px 20px rgba(0, 0, 0, 0.5);
-   font-family: 'Segoe UI', Arial, sans-serif;
-   letter-spacing: 0.3px;
-   max-width: 90vw;
-   word-break: break-word;
-}
-
-/* Разные цвета для разных типов сообщений (опционально) */
-#messages .message.error {
-   border-left: 3px solid #e94560;
-   color: #ff6b6b;
-}
-
-#messages .message.success {
-   border-left: 3px solid #4caf50;
-   color: #81c784;
-}
-
-#messages .message.info {
-   border-left: 3px solid #ffd93d;
-   color: #ffd93d;
-}
-
-#messages .message.warning {
-   border-left: 3px solid #ff9800;
-   color: #ffb74d;
+   color: #ffeb3b;
+   padding: 8px 16px;
+   border-radius: 25px;
+   margin: 5px;
+   font-size: 13px;
+   font-weight: bold;
+   animation: fadeOutUp 2s forwards;
 }
 
 @keyframes fadeOutUp {
-   0% { 
-       opacity: 0; 
-       transform: translateY(15px) scale(0.95);
-   }
-   10% { 
-       opacity: 1; 
-       transform: translateY(0) scale(1);
-   }
-   70% { 
-       opacity: 1; 
-       transform: translateY(0) scale(1);
-   }
-   100% { 
-       opacity: 0; 
-       transform: translateY(-30px) scale(0.9);
-   }
+   0% { opacity: 1; transform: translateY(0); }
+   100% { opacity: 0; transform: translateY(-30px); }
 }
 
-/* Индикатор цели */
-#targetIndicator {
+#gameOverScreen {
    position: fixed;
-   top: 80px;
+   top: 0;
+   left: 0;
+   width: 100%;
+   height: 100%;
+   background: rgba(0, 0, 0, 0.95);
+   display: none;
+   justify-content: center;
+   align-items: center;
+   z-index: 1000;
+}
+
+.gameover-card {
+   background: linear-gradient(135deg, #1e1e2e, #2a2a3e);
+   padding: 40px;
+   border-radius: 30px;
+   text-align: center;
+   color: white;
+   max-width: 90%;
+}
+
+.gameover-card h1 {
+   font-size: 26px;
+   margin-bottom: 20px;
+   color: #e94560;
+}
+
+.winner-text {
+   font-size: 28px;
+   margin: 20px 0;
+   color: #ffeb3b;
+}
+
+.gameover-card button {
+   background: #e94560;
+   color: white;
+   border: none;
+   padding: 12px 30px;
+   border-radius: 30px;
+   font-size: 16px;
+   cursor: pointer;
+   transition: transform 0.1s;
+}
+
+.gameover-card button:active {
+   transform: scale(0.95);
+}
+
+
+
+@media (max-width: 600px) {
+   .shoot-btn {
+       width: 80px;
+       height: 50px;
+       font-size: 16px;
+   }
+   .stat {
+       font-size: 11px;
+   }
+   .hex-controls button {
+       width: 45px;
+       height: 45px;
+       font-size: 18px;
+   }
+   .zoom-btn {
+       width: 38px;
+       height: 38px;
+       font-size: 20px;
+   }
+}
+/* Добавить в конец файла */
+
+/* Режимы управления */
+.control-modes {
+   position: fixed;
+   bottom: 20px;
+   left: 50%;
+   transform: translateX(-50%);
+   display: flex;
+   gap: 20px;
+   z-index: 40;
+   background: rgba(0, 0, 0, 0.9);
+   backdrop-filter: blur(10px);
+   padding: 10px 20px;
+   border-radius: 60px;
+   border: 1px solid rgba(255, 255, 255, 0.2);
+}
+
+.mode-btn {
+   padding: 12px 24px;
+   border-radius: 40px;
+   border: none;
+   font-size: 18px;
+   font-weight: bold;
+   cursor: pointer;
+   transition: all 0.2s;
+   min-width: 120px;
+}
+
+.mode-btn.move {
+   background: rgba(76, 175, 80, 0.3);
+   color: #4caf50;
+   border: 2px solid #4caf50;
+}
+
+.mode-btn.move.active {
+   background: #4caf50;
+   color: white;
+   box-shadow: 0 0 20px rgba(76, 175, 80, 0.5);
+}
+
+.mode-btn.shoot {
+   background: rgba(233, 69, 96, 0.3);
+   color: #e94560;
+   border: 2px solid #e94560;
+}
+
+.mode-btn.shoot.active {
+   background: #e94560;
+   color: white;
+   box-shadow: 0 0 20px rgba(233, 69, 96, 0.5);
+}
+
+/* Панель действий (для стрельбы) */
+.action-panel {
+   position: fixed;
+   bottom: 20px;
+   right: 20px;
+   z-index: 40;
+}
+
+.shoot-action-btn {
+   width: 80px;
+   height: 80px;
+   border-radius: 50%;
+   background: linear-gradient(135deg, #e94560, #c44569);
+   border: 3px solid white;
+   color: white;
+   font-size: 32px;
+   font-weight: bold;
+   cursor: pointer;
+   box-shadow: 0 5px 20px rgba(233, 69, 96, 0.4);
+   transition: transform 0.1s;
+}
+
+.shoot-action-btn:active {
+   transform: scale(0.95);
+}
+
+
+/* Индикатор выбранной цели */
+.target-indicator {
+   position: fixed;
+   top: 100px;
    right: 20px;
    background: rgba(0, 0, 0, 0.85);
    backdrop-filter: blur(10px);
-   padding: 10px 18px;
-   border-radius: 12px;
-   z-index: 10;
+   padding: 12px 20px;
+   border-radius: 40px;
+   z-index: 40;
+   text-align: center;
    border-left: 4px solid #ffeb3b;
-   color: white;
-   font-size: 14px;
-   display: none;
 }
 
-#targetIndicator .target-label {
-   font-size: 11px;
+.target-label {
+   font-size: 12px;
    color: #aaa;
-   text-transform: uppercase;
-   letter-spacing: 1px;
+   margin-bottom: 5px;
 }
 
-#targetIndicator .target-coords {
+.target-coords {
    font-size: 18px;
    font-weight: bold;
    color: #ffeb3b;
 }
 
-/* Контроллер зума */
-#zoom-controls {
-   position: fixed;
-   bottom: 100px;
-   right: 20px;
-   display: flex;
-   flex-direction: column;
-   gap: 8px;
-   z-index: 10;
+.target-clear {
+   background: none;
+   border: none;
+   color: #e94560;
+   font-size: 12px;
+   margin-top: 5px;
+   cursor: pointer;
 }
 
-#zoom-controls button {
+/* Подсказка */
+.tooltip {
+   position: fixed;
+   bottom: 120px;
+   left: 50%;
+   transform: translateX(-50%);
+   background: rgba(0, 0, 0, 0.9);
+   color: #ffeb3b;
+   padding: 8px 16px;
+   border-radius: 20px;
+   font-size: 12px;
+   z-index: 40;
+   white-space: nowrap;
+   pointer-events: none;
+   animation: fadeOut 3s forwards;
+}
+
+@keyframes fadeOut {
+   0% { opacity: 1; transform: translateX(-50%) translateY(0); }
+   70% { opacity: 1; }
+   100% { opacity: 0; transform: translateX(-50%) translateY(-20px); }
+}
+
+@media (max-width: 600px) {
+   .mode-btn {
+       padding: 8px 16px;
+       font-size: 14px;
+       min-width: 90px;
+   }
+   
+   .movement-panel button {
+       width: 55px;
+       height: 55px;
+       font-size: 22px;
+   }
+   
+   .shoot-action-btn {
+       width: 70px;
+       height: 70px;
+       font-size: 28px;
+   }
+   
+   .target-indicator {
+       top: 80px;
+       right: 10px;
+       padding: 8px 15px;
+   }
+   
+   .target-coords {
+       font-size: 14px;
+   }
+}
+/* Добавить в конец styles.css */
+.reset-btn {
+   position: fixed;
+   bottom: 20px;
+   right: 20px;
    width: 50px;
    height: 50px;
    border-radius: 25px;
    border: none;
+   font-size: 24px;
    background: rgba(0, 0, 0, 0.7);
-   color: white;
-   font-size: 28px;
-   cursor: pointer;
    backdrop-filter: blur(5px);
+   color: #ff9800;
+   cursor: pointer;
+   z-index: 40;
    transition: transform 0.1s;
-   user-select: none;
 }
 
-#zoom-controls button:hover {
-   transform: scale(1.05);
-   background: rgba(0, 0, 0, 0.85);
+.reset-btn:active {
+   transform: scale(0.95);
+}
+/* В public/css/styles.css */
+.canvas-container {
+   flex: 1;
+   position: relative;
+   width: 100%;
+   min-height: 400px;
+   background: #1a2a3a;
+   border-radius: 16px;
+   overflow: hidden;
+   box-shadow: 0 10px 40px rgba(0, 0, 0, 0.5);
 }
 
-#zoom-controls button:active {
-   transform: scale(0.9);
+#canvas3d-container {
+   position: absolute;
+   top: 0;
+   left: 0;
+   width: 100%;
+   height: 100%;
+   cursor: grab;
 }
 
-#zoom-controls #zoomValue {
-   text-align: center;
-   color: white;
-   font-size: 12px;
-   font-family: Arial, sans-serif;
-   text-shadow: 0 0 10px rgba(0,0,0,0.8);
-   padding: 2px 0;
-}
-
-/* Адаптив */
-@media (max-width: 600px) {
-   #hud {
-       font-size: 13px;
-       padding: 8px 16px;
-       gap: 12px;
-       top: 10px;
-   }
-   
-   #shootBtn {
-       width: 65px;
-       height: 65px;
-       font-size: 28px;
-       bottom: 90px;
-       right: 20px;
-   }
-   
-   #mode-indicator {
-       font-size: 14px;
-       padding: 8px 20px;
-       bottom: 20px;
-   }
-   
-   #resetBtn {
-       width: 40px;
-       height: 40px;
-       font-size: 18px;
-       bottom: 20px;
-       right: 20px;
-   }
-   
-   #targetIndicator {
-       top: 70px;
-       right: 10px;
-       padding: 8px 12px;
-   }
-   
-   #gameover .card {
-       padding: 30px 25px;
-   }
-   
-   #gameover .card h1 {
-       font-size: 22px;
-   }
-   
-   #gameover .card .winner {
-       font-size: 24px;
-   }
-
-   #messages {
-       top: 70px;
-       max-width: 90%;
-   }
-
-   #messages .message {
-       font-size: 12px;
-       padding: 6px 14px;
-   }
-
-   #zoom-controls {
-       bottom: 80px;
-       right: 10px;
-   }
-
-   #zoom-controls button {
-       width: 40px;
-       height: 40px;
-       font-size: 22px;
-   }
-}
-
-@media (max-width: 400px) {
-   #hud {
-       font-size: 10px;
-       padding: 4px 10px;
-       gap: 8px;
-       top: 5px;
-   }
-
-   #mode-indicator {
-       font-size: 11px;
-       padding: 4px 12px;
-       bottom: 10px;
-   }
-
-   #shootBtn {
-       width: 55px;
-       height: 55px;
-       font-size: 24px;
-       bottom: 70px;
-       right: 10px;
-   }
-
-   #resetBtn {
-       width: 36px;
-       height: 36px;
-       font-size: 16px;
-       bottom: 10px;
-       right: 10px;
-   }
-
-   #messages .message {
-       font-size: 11px;
-       padding: 4px 12px;
-   }
-}
-/* Переопределяем стили сообщений - БЕЗ КРАСНОГО */
-#messages {
-   position: fixed;
-   top: 80px;
-   left: 50%;
-   transform: translateX(-50%);
-   z-index: 100;
-   text-align: center;
-   pointer-events: none;
-   max-width: 80%;
+/* Убедимся, что родительский элемент имеет высоту */
+.game-wrapper {
+   width: 100%;
+   height: 100vh;
    display: flex;
    flex-direction: column;
-   align-items: center;
-   gap: 6px;
+   gap: 10px;
 }
 
-#messages .message {
-   /* ✅ ОСНОВНЫЕ СТИЛИ - БЕЛЫЙ ТЕКСТ, ТЕМНЫЙ ФОН */
-   color: #ffffff !important;
-   background: rgba(0, 0, 0, 0.85) !important;
-   backdrop-filter: blur(8px);
-   padding: 8px 20px;
-   border-radius: 20px;
-   font-size: 14px;
-   font-weight: 500;
-   display: inline-block;
-   border: 1px solid rgba(255, 255, 255, 0.08);
-   box-shadow: 0 4px 20px rgba(0, 0, 0, 0.5);
-   font-family: 'Segoe UI', Arial, sans-serif;
-   letter-spacing: 0.3px;
-   max-width: 90vw;
-   word-break: break-word;
-   animation: messageAppear 0.3s ease;
-}
-
-/* Анимация появления */
-@keyframes messageAppear {
-   from {
-       opacity: 0;
-       transform: translateY(15px) scale(0.95);
-   }
-   to {
-       opacity: 1;
-       transform: translateY(0) scale(1);
-   }
-}
-
-/* Типы сообщений с цветной полоской слева */
-#messages .message.error {
-   border-left: 4px solid #e94560 !important;
-}
-
-#messages .message.success {
-   border-left: 4px solid #4caf50 !important;
-}
-
-#messages .message.warning {
-   border-left: 4px solid #ff9800 !important;
-}
-
-#messages .message.info {
-   border-left: 4px solid #ffd93d !important;
-}
-/* Стили для сообщений - БЕЗ КРАСНОГО ЦВЕТА */
-#messages .message {
-   color: #ffffff !important;
-   background: rgba(0, 0, 0, 0.85) !important;
-   backdrop-filter: blur(8px);
-   padding: 10px 24px;
-   border-radius: 16px;
-   font-size: 16px;
-   font-weight: 500;
-   border: 1px solid rgba(255, 255, 255, 0.1);
-   box-shadow: 0 8px 30px rgba(0, 0, 0, 0.6);
-   font-family: 'Segoe UI', Arial, sans-serif;
-   pointer-events: none;
-   animation: messagePop 0.3s ease;
-}
-
-@keyframes messagePop {
-   from {
-       opacity: 0;
-       transform: scale(0.8) translateY(10px);
-   }
-   to {
-       opacity: 1;
-       transform: scale(1) translateY(0);
-   }
+body, html {
+   height: 100%;
+   overflow: hidden;
 }

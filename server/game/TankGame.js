@@ -1,690 +1,549 @@
-// server/game/TankGame.js - С ПРАВИЛЬНЫМ ИМПОРТОМ HexUtils
+const { TankUnit } = require('./TankUnit');
 
-const HexUtils = require('../../shared/utils/HexUtils.js');
+// Используем утилиты для работы с гексами
+const HexUtils = require('../../public/js/utils/HexUtils.js');
+// 6 направлений для гексагональной сетки
+const DIRECTIONS = [
+    { q: 1, r: 0, s: -1, name: 'right' },
+    { q: 1, r: -1, s: 0, name: 'up-right' },
+    { q: 0, r: -1, s: 1, name: 'up' },
+    { q: -1, r: 0, s: 1, name: 'left' },
+    { q: -1, r: 1, s: 0, name: 'down-left' },
+    { q: 0, r: 1, s: -1, name: 'down' }
+];
 
 class TankGame {
-   constructor() {
-       this.radius = 10;
-       this.gameOver = false;
-       this.winner = null;
-       this.cells = [];
-       this.players = [];
-       this.bots = [];
-       this.enemies = [];
-       
-       this.unitCooldowns = new Map();
-       this.moveCooldown = 1000;
-       this.shootCooldown = 2500;
-       
-       this._lastPositions = new Map();
-       this._pendingMoves = new Map();
-       
-       // Таймер ботов
-       this.botTimer = null;
-       this.botInterval = 1200;
-       this.isBotRunning = false;
-       this._pendingBotResults = [];
-       this._botCallbacks = [];
-       
-       this.generateMap();
-       this.initializeUnits();
-       this.startBots();
-       
-       console.log('🎮 TankGame создан на сервере');
-   }
-   
-   // ============================================
-   // БОТЫ НА СЕРВЕРЕ
-   // ============================================
-   
-   startBots() {
-       if (this.isBotRunning) return;
-       this.isBotRunning = true;
-       
-       if (this.botTimer) {
-           clearInterval(this.botTimer);
-           this.botTimer = null;
-       }
-       
-       console.log('🤖 Запуск ботов на сервере...');
-       
-       this.botTimer = setInterval(() => {
-           if (this.gameOver) {
-               this.stopBots();
-               return;
-           }
-           this.botTick();
-       }, this.botInterval);
-   }
-   
-   stopBots() {
-       this.isBotRunning = false;
-       if (this.botTimer) {
-           clearInterval(this.botTimer);
-           this.botTimer = null;
-       }
-       console.log('🤖 Боты на сервере остановлены');
-   }
-   
-   botTick() {
-       if (this.gameOver) return;
-       
-       const activeBots = this.bots.filter(b => b.active);
-       if (activeBots.length === 0) return;
-       
-       const results = [];
-       
-       for (const bot of activeBots) {
-           const result = this.botAction(bot.id);
-           if (result) {
-               results.push(result);
-               console.log(`🤖 Бот ${bot.name} выполнил действие:`, result.type || 'shoot');
-           }
-       }
-       
-       if (results.length > 0) {
-           this._pendingBotResults = results;
-           
-           // Вызываем колбэки
-           for (const callback of this._botCallbacks) {
-               try {
-                   callback(results);
-               } catch (e) {
-                   console.error('Ошибка в callback ботов:', e);
-               }
-           }
-       }
-   }
-   
-   onBotAction(callback) {
-       if (typeof callback === 'function') {
-           this._botCallbacks.push(callback);
-       }
-   }
-   
-   getBotResults() {
-       const results = this._pendingBotResults || [];
-       this._pendingBotResults = [];
-       return results;
-   }
-   
-   // ============================================
-   // ЛОГИКА БОТА
-   // ============================================
-   
-   botAction(botId) {
-       const bot = this.getBotById(botId);
-       if (!bot || !bot.active) return null;
-       
-       // Находим ближайшего врага
-       const enemies = this.getAllActiveUnits().filter(u => {
-           return u.team !== bot.team && u.id !== bot.id;
-       });
-       
-       if (enemies.length === 0) return null;
-       
-       enemies.sort((a, b) => {
-           const distA = HexUtils.distance(bot.q, bot.r, a.q, a.r);
-           const distB = HexUtils.distance(bot.q, bot.r, b.q, b.r);
-           return distA - distB;
-       });
-       
-       const target = enemies[0];
-       const dist = HexUtils.distance(bot.q, bot.r, target.q, target.r);
-       
-       // Приоритет 1: Стрельба
-       if (dist <= bot.range && this.canShoot(bot) && Math.random() < 0.6) {
-           const shootResult = this.shootAt(bot.id, target.q, target.r);
-           if (shootResult && shootResult.success) {
-               return {
-                   type: 'shoot',
-                   result: shootResult,
-                   botId: bot.id
-               };
-           }
-       }
-       
-       // Приоритет 2: Движение
-       if (this.canMove(bot) && Math.random() < 0.7) {
-           const moveResult = this.botMoveTowards(bot.id, target.q, target.r);
-           if (moveResult) {
-               return moveResult;
-           }
-       }
-       
-       return null;
-   }
-   
-   botMoveTowards(botId, targetQ, targetR) {
-       const bot = this.getBotById(botId);
-       if (!bot || !bot.active) return null;
-       
-       const neighbors = this.getNeighbors(bot.q, bot.r);
-       const allUnits = this.getAllActiveUnits();
-       
-       const valid = neighbors.filter(n => {
-           return this.isValidCell(n.q, n.r) && 
-                  !allUnits.some(u => u.id !== bot.id && u.q === n.q && u.r === n.r);
-       });
-       
-       if (valid.length === 0) return null;
-       
-       // Выбираем клетку ближе к цели
-       const best = valid.reduce((a, b) => {
-           const distA = HexUtils.distance(a.q, a.r, targetQ, targetR);
-           const distB = HexUtils.distance(b.q, b.r, targetQ, targetR);
-           return distA < distB ? a : b;
-       });
-       
-       const fromQ = bot.q, fromR = bot.r;
-       
-       if (this.moveUnit(bot.id, best.q, best.r)) {
-           return { 
-               type: 'move', 
-               fromQ, fromR, 
-               toQ: best.q, toR: best.r, 
-               unitId: bot.id 
-           };
-       }
-       
-       return null;
-   }
-   
-   // ============================================
-   // КУЛДАУНЫ
-   // ============================================
-   
-   getCooldowns(unitId) {
-       if (!this.unitCooldowns.has(unitId)) {
-           this.unitCooldowns.set(unitId, { lastMove: 0, lastShoot: 0 });
-       }
-       return this.unitCooldowns.get(unitId);
-   }
-   
-   canMove(unit) {
-       if (!unit || !unit.active) return false;
-       const cd = this.getCooldowns(unit.id);
-       return (Date.now() - cd.lastMove) >= this.moveCooldown;
-   }
-   
-   canShoot(unit) {
-       if (!unit || !unit.active) return false;
-       const cd = this.getCooldowns(unit.id);
-       return (Date.now() - cd.lastShoot) >= this.shootCooldown;
-   }
-   
-   getRemainingMoveCooldown(unitId) {
-       const cd = this.getCooldowns(unitId);
-       return Math.max(0, this.moveCooldown - (Date.now() - cd.lastMove));
-   }
-   
-   getRemainingShootCooldown(unitId) {
-       const cd = this.getCooldowns(unitId);
-       return Math.max(0, this.shootCooldown - (Date.now() - cd.lastShoot));
-   }
-   
-   // ============================================
-   // ГЕНЕРАЦИЯ КАРТЫ
-   // ============================================
-   
-   generateMap() {
-       this.cells = [];
-       for (let q = -this.radius; q <= this.radius; q++) {
-           for (let r = -this.radius; r <= this.radius; r++) {
-               const s = -q - r;
-               if (Math.abs(q) <= this.radius && Math.abs(r) <= this.radius && Math.abs(s) <= this.radius) {
-                   this.cells.push({ q, r, s, terrain: 'plains' });
-               }
-           }
-       }
-   }
-   
-   // ============================================
-   // ИНИЦИАЛИЗАЦИЯ ЮНИТОВ
-   // ============================================
-   
-   initializeUnits() {
-       // Игрок
-       const player1 = {
-           id: 'player1',
-           name: 'Командир',
-           team: 'player',
-           q: 1, r: -8,
-           hp: 120, maxHp: 120,
-           damage: 35,
-           color: '#ffd93d',
-           type: 'medium',
-           range: Infinity,
-           active: true,
-           direction: 'right',
-           kills: 0,
-           isPlayer: true,
-           isBot: false,
-           permanent: true
-       };
-       this.players.push(player1);
-       
-       // Боты
-       const botConfigs = [
-           { id: 'bot1', name: 'Враг-1', team: 'enemy', q: -1, r: 8, hp: 100, damage: 30, color: '#e94560', type: 'medium', range: 5 },
-           { id: 'bot2', name: 'Враг-2', team: 'enemy', q: -2, r: 6, hp: 80, damage: 25, color: '#ff6b6b', type: 'light', range: 5 },
-           { id: 'bot3', name: 'Нейтрал', team: 'neutral', q: 3, r: 5, hp: 150, damage: 20, color: '#88ccff', type: 'heavy', range: 4 }
-       ];
-       
-       for (const cfg of botConfigs) {
-           const bot = {
-               id: cfg.id,
-               name: cfg.name,
-               team: cfg.team,
-               q: cfg.q,
-               r: cfg.r,
-               hp: cfg.hp,
-               maxHp: cfg.hp,
-               damage: cfg.damage,
-               color: cfg.color,
-               type: cfg.type,
-               range: cfg.range,
-               active: true,
-               direction: 'right',
-               kills: 0,
-               isPlayer: false,
-               isBot: true,
-               botId: cfg.id
-           };
-           this.bots.push(bot);
-       }
-       
-       this.updateEnemiesList();
-       
-       // Инициализируем кулдауны
-       const allUnits = this.getAllUnits();
-       for (const unit of allUnits) {
-           this.getCooldowns(unit.id);
-           this.setLastPosition(unit.id, unit.q, unit.r);
-       }
-   }
-   
-   updateEnemiesList() {
-       this.enemies = [];
-       
-       for (const bot of this.bots) {
-           if (bot.team !== 'player') {
-               this.enemies.push(bot);
-           }
-       }
-       
-       for (const player of this.players) {
-           if (player.team !== 'player' && player.id !== 'player1') {
-               this.enemies.push(player);
-           }
-       }
-   }
-   
-   // ============================================
-   // ПОЛУЧЕНИЕ ЮНИТОВ
-   // ============================================
-   
-   getFirstPlayer() {
-       return this.players.find(p => p.active) || null;
-   }
-   
-   getPlayerById(id) {
-       return this.players.find(p => p.id === id && p.active) || null;
-   }
-   
-   getBotById(id) {
-       return this.bots.find(b => b.id === id && b.active) || null;
-   }
-   
-   getUnitById(id) {
-       return this.getAllUnits().find(u => u.id === id && u.active) || null;
-   }
-   
-   getAllUnits() {
-       return [...this.players, ...this.bots];
-   }
-   
-   getAllActiveUnits() {
-       return this.getAllUnits().filter(u => u.active);
-   }
-   
-   getUnitsByTeam(team) {
-       return this.getAllUnits().filter(u => u.active && u.team === team);
-   }
-   
-   // ============================================
-   // РАБОТА С КАРТОЙ
-   // ============================================
-   
-   isValidCell(q, r) {
-       return HexUtils.isValidCell(q, r, this.radius);
-   }
-   
-   getNeighbors(q, r) {
-       const dirs = HexUtils.directions || [];
-       const result = [];
-       for (const d of dirs) {
-           const nq = q + d.q, nr = r + d.r;
-           if (this.isValidCell(nq, nr)) result.push({ q: nq, r: nr });
-       }
-       return result;
-   }
-   
-   // ============================================
-   // ПОЗИЦИИ
-   // ============================================
-   
-   getLastPosition(unitId) {
-       return this._lastPositions.get(unitId) || null;
-   }
-   
-   setLastPosition(unitId, q, r) {
-       this._lastPositions.set(unitId, { q, r });
-   }
-   
-   // ============================================
-   // ✅ УНИВЕРСАЛЬНОЕ ДВИЖЕНИЕ (ДЛЯ ВСЕХ ТАНКОВ)
-   // ============================================
-   
-   moveUnit(unitId, targetQ, targetR) {
-       const unit = this.getUnitById(unitId);
-       if (!unit || !this.canMove(unit)) return false;
-       
-       if (!HexUtils.areAdjacent(unit.q, unit.r, targetQ, targetR)) {
-           return false;
-       }
-       
-       const occupied = this.getAllActiveUnits().some(u => {
-           return u.id !== unitId && u.q === targetQ && u.r === targetR;
-       });
-       if (occupied) return false;
-       
-       // Сохраняем старую позицию
-       this.setLastPosition(unitId, unit.q, unit.r);
-       
-       const direction = HexUtils.getDirection(unit.q, unit.r, targetQ, targetR);
-       unit.direction = direction;
-       unit.q = targetQ;
-       unit.r = targetR;
-       
-       const cd = this.getCooldowns(unitId);
-       cd.lastMove = Date.now();
-       
-       return true;
-   }
-   
-   // ============================================
-   // ✅ УНИВЕРСАЛЬНАЯ СТРЕЛЬБА (ДЛЯ ВСЕХ ТАНКОВ)
-   // ============================================
-   
-   shootAt(attackerId, targetQ, targetR) {
-       const attacker = this.getUnitById(attackerId);
-       if (!attacker) {
-           return { success: false, message: 'Танк не найден' };
-       }
-       
-       if (!this.canShoot(attacker)) {
-           const remaining = this.getRemainingShootCooldown(attackerId);
-           return { 
-               success: false, 
-               message: 'Перезарядка: ' + Math.ceil(remaining/1000) + 'с', 
-               cooldown: remaining 
-           };
-       }
-       
-       // Проверяем дальность
-       const dist = HexUtils.distance(attacker.q, attacker.r, targetQ, targetR);
-       if (dist > attacker.range) {
-           return { 
-               success: false, 
-               message: 'Слишком далеко (макс. ' + attacker.range + ')' 
-           };
-       }
-       
-       const allUnits = this.getAllActiveUnits();
-       
-       // Находим цель
-       let target = null;
-       for (const unit of allUnits) {
-           if (unit.id !== attackerId && unit.q === targetQ && unit.r === targetR) {
-               target = unit;
-               break;
-           }
-       }
-       
-       // Если цели нет - промах
-       if (!target) {
-           const cd = this.getCooldowns(attackerId);
-           cd.lastShoot = Date.now();
-           
-           return {
-               success: true,
-               hit: false,
-               message: '💨 Промах!',
-               targetQ, targetR,
-               fromQ: attacker.q,
-               fromR: attacker.r,
-               attackerId: attacker.id
-           };
-       }
-       
-       // Расчет урона
-       let damage = attacker.damage || 30;
-       let isCritical = false;
-       
-       // Критический урон для ботов
-       if (!attacker.isPlayer && Math.random() < 0.15) {
-           damage = Math.round(damage * 1.5);
-           isCritical = true;
-       }
-       
-       // Наносим урон
-       target.hp -= damage;
-       let killed = false;
-       
-       if (target.hp <= 0) {
-           target.hp = 0;
-           target.active = false;
-           killed = true;
-           attacker.kills = (attacker.kills || 0) + 1;
-       }
-       
-       const cd = this.getCooldowns(attackerId);
-       cd.lastShoot = Date.now();
-       
-       return {
-           success: true,
-           hit: true,
-           killed,
-           damage,
-           isCritical,
-           message: killed ? '💀 ' + target.name + ' уничтожен!' : '💥 Попадание! -' + damage + ' HP',
-           targetQ: target.q,
-           targetR: target.r,
-           targetId: target.id,
-           targetName: target.name,
-           targetHp: target.hp,
-           targetMaxHp: target.maxHp,
-           fromQ: attacker.q,
-           fromR: attacker.r,
-           attackerId: attacker.id,
-           isPlayer: attacker.isPlayer
-       };
-   }
-   
-   // ============================================
-   // ПОЛУЧЕНИЕ СОСТОЯНИЯ
-   // ============================================
-   
-   getStateForPlayer(playerId) {
-       const player = this.getPlayerById(playerId);
-       if (!player) return null;
-       
-       const allUnits = this.getAllActiveUnits();
-       
-       const lastPositions = {};
-       for (const u of allUnits) {
-           const lp = this.getLastPosition(u.id);
-           if (lp) lastPositions[u.id] = lp;
-       }
-       
-       const cooldowns = {};
-       for (const u of allUnits) {
-           const cd = this.getCooldowns(u.id);
-           cooldowns[u.id] = {
-               lastMove: cd.lastMove,
-               lastShoot: cd.lastShoot,
-               moveRemaining: this.getRemainingMoveCooldown(u.id),
-               shootRemaining: this.getRemainingShootCooldown(u.id)
-           };
-       }
-       
-       return {
-           radius: this.radius,
-           myTank: JSON.parse(JSON.stringify(player)),
-           enemies: this.enemies.filter(e => e.active).map(e => JSON.parse(JSON.stringify(e))),
-           bots: this.bots.filter(b => b.active).map(b => JSON.parse(JSON.stringify(b))),
-           allUnits: allUnits.map(u => JSON.parse(JSON.stringify(u))),
-           cells: this.cells.slice(),
-           moveCooldown: this.moveCooldown,
-           shootCooldown: this.shootCooldown,
-           gameOver: this.gameOver,
-           winner: this.winner,
-           lastPositions,
-           cooldowns
-       };
-   }
-   
-   // ============================================
-   // ПРОВЕРКА ПОБЕДИТЕЛЯ
-   // ============================================
-   
-   checkWinner() {
-       const allUnits = this.getAllActiveUnits();
-       
-       if (allUnits.length === 0) {
-           this.gameOver = true;
-           this.winner = 'Ничья! Все уничтожены!';
-           return true;
-       }
-       
-       const playerAlive = allUnits.some(u => u.team === 'player' && u.active);
-       const enemyAlive = allUnits.some(u => u.team === 'enemy' && u.active);
-       
-       if (!playerAlive && enemyAlive) {
-           this.gameOver = true;
-           this.winner = 'ПОРАЖЕНИЕ! Все ваши танки уничтожены!';
-           return true;
-       }
-       
-       if (!enemyAlive && playerAlive) {
-           this.gameOver = true;
-           this.winner = 'ПОБЕДА! Все враги уничтожены!';
-           return true;
-       }
-       
-       if (!playerAlive && !enemyAlive) {
-           this.gameOver = true;
-           this.winner = 'НИЧЬЯ! Все уничтожены!';
-           return true;
-       }
-       
-       return false;
-   }
-   
-   // ============================================
-   // ДОБАВЛЕНИЕ ИГРОКА
-   // ============================================
-   
-   addPlayer(id, name, team, q, r, type) {
-       if (this.getPlayerById(id)) return false;
-       
-       const stats = { hp: 100, damage: 30, color: '#4caf50', id: 'medium', range: 5 };
-       
-       const player = {
-           id,
-           name: name || 'Игрок',
-           team: team || 'player',
-           q: q || 0,
-           r: r || 0,
-           hp: stats.hp,
-           maxHp: stats.hp,
-           damage: stats.damage,
-           color: stats.color,
-           type: stats.id,
-           range: stats.range,
-           active: true,
-           direction: 'right',
-           kills: 0,
-           isPlayer: true,
-           isBot: false
-       };
-       
-       this.players.push(player);
-       this.updateEnemiesList();
-       this.getCooldowns(player.id);
-       this.setLastPosition(player.id, player.q, player.r);
-       
-       return player;
-   }
-   
-   // ============================================
-   // УДАЛЕНИЕ ИГРОКА
-   // ============================================
-   
-   removePlayer(id) {
-       const index = this.players.findIndex(p => p.id === id);
-       if (index === -1) return false;
-       if (this.players[index].permanent) return false;
-       
-       this.players.splice(index, 1);
-       this.updateEnemiesList();
-       return true;
-   }
-   
-   // ============================================
-   // СБРОС ИГРЫ
-   // ============================================
-   
-   resetGame() {
-       this.gameOver = false;
-       this.winner = null;
-       this._lastPositions.clear();
-       this.unitCooldowns.clear();
-       this._pendingMoves.clear();
-       this._pendingBotResults = [];
-       
-       const allUnits = this.getAllUnits();
-       for (const u of allUnits) {
-           u.hp = u.maxHp;
-           u.active = true;
-           u.kills = 0;
-           this.getCooldowns(u.id);
-       }
-       
-       if (this.players.length > 0) {
-           const player = this.players[0];
-           player.q = 1;
-           player.r = -8;
-           player.direction = 'right';
-           this.setLastPosition(player.id, player.q, player.r);
-       }
-       
-       const botPositions = [
-           { q: -1, r: 8 },
-           { q: -2, r: 6 },
-           { q: 3, r: 5 }
-       ];
-       for (let i = 0; i < this.bots.length && i < botPositions.length; i++) {
-           const bot = this.bots[i];
-           bot.q = botPositions[i].q;
-           bot.r = botPositions[i].r;
-           bot.direction = 'right';
-           this.setLastPosition(bot.id, bot.q, bot.r);
-       }
-       
-       this.startBots();
-   }
+    constructor() {
+        this.radius = 7;
+        this.gameOver = false;
+        this.winner = null;
+        this.lastActionTime = new Map();
+        
+        this.cells = new Map();
+        this.walls = new Map();
+        this.players = [];
+        this.enemies = [];
+        this.allies = [];
+        
+        this.generateMap();
+        this.initializeUnits();
+        this.initializeWalls();
+        this.initializeBases();
+    }
+    
+    generateMap() {
+        for (let q = -this.radius; q <= this.radius; q++) {
+            for (let r = -this.radius; r <= this.radius; r++) {
+                const s = -q - r;
+                if (Math.abs(q) <= this.radius && 
+                    Math.abs(r) <= this.radius && 
+                    Math.abs(s) <= this.radius) {
+                    
+                    const key = `${q},${r}`;
+                    this.cells.set(key, {
+                        q, r, s,
+                        terrain: this.getTerrainType(q, r, s),
+                        owner: null,
+                        hasBase: false,
+                        baseOwner: null,
+                        captureProgress: 0
+                    });
+                }
+            }
+        }
+        console.log(`Карта создана: ${this.cells.size} гексов`);
+    }
+    
+    getTerrainType(q, r, s) {
+        const dist = Math.max(Math.abs(q), Math.abs(r), Math.abs(s));
+        
+        if (dist <= 2) return 'arena';
+        if (dist === 3 && (Math.abs(q) === 3 || Math.abs(r) === 3 || Math.abs(s) === 3)) return 'swamp';
+        if (dist === 4) return 'forest';
+        if (dist === this.radius) return 'mountain';
+        return 'plains';
+    }
+    
+    isValidCell(q, r) {
+        const s = -q - r;
+        const key = `${q},${r}`;
+        return this.cells.has(key) && this.cells.get(key).terrain !== 'mountain';
+    }
+    
+    initializeBases() {
+        const bases = [
+            { q: -this.radius, r: 0, owner: 'enemy' },
+            { q: this.radius, r: 0, owner: 'ally' },
+            { q: 0, r: -this.radius, owner: 'player' },
+            { q: 0, r: this.radius, owner: 'neutral' }
+        ];
+        
+        for (const base of bases) {
+            const key = `${base.q},${base.r}`;
+            if (this.cells.has(key)) {
+                const cell = this.cells.get(key);
+                cell.hasBase = true;
+                cell.baseOwner = base.owner;
+                cell.terrain = 'base';
+            }
+        }
+    }
+    
+    initializeWalls() {
+        const baseWalls = [
+            { q: 0, r: -this.radius + 1, type: 'steel', hp: 3 },
+            { q: 1, r: -this.radius, type: 'steel', hp: 3 },
+            { q: -1, r: -this.radius, type: 'steel', hp: 3 },
+            { q: -this.radius + 1, r: 0, type: 'brick', hp: 1 },
+            { q: -this.radius, r: 1, type: 'brick', hp: 1 },
+            { q: -this.radius, r: -1, type: 'brick', hp: 1 }
+        ];
+        
+        for (const wall of baseWalls) {
+            const key = `${wall.q},${wall.r}`;
+            if (this.cells.has(key)) {
+                this.walls.set(key, { hp: wall.hp, type: wall.type });
+            }
+        }
+    }
+    
+    initializeUnits() {
+        const enemyPositions = [
+            { q: -this.radius + 2, r: 1, name: 'Враг', color: '#e94560', type: 'heavy' },
+            { q: -this.radius + 3, r: 2, name: 'Враг 2', color: '#ff6b6b', type: 'light' },
+            { q: -this.radius + 1, r: -1, name: 'Враг 3', color: '#c0392b', type: 'medium' }
+        ];
+        
+        this.enemies = enemyPositions.map((pos, i) => 
+            new TankUnit(
+                `enemy${i}`, 
+                pos.name, 
+                'enemy', 
+                pos.q, 
+                pos.r, 
+                pos.type === 'heavy' ? 150 : pos.type === 'light' ? 70 : 100,
+                pos.type === 'heavy' ? 45 : pos.type === 'light' ? 25 : 35,
+                pos.color, 
+                pos.type, 
+                null, 
+                false, 
+                pos.type === 'heavy' ? 4 : pos.type === 'light' ? 6 : 5
+            )
+        );
+        
+        this.allies = [];
+        
+        console.log(`Создано ${this.enemies.length} врагов`);
+    }
+    
+    addPlayer(telegramId, name) {
+        if (this.players.length > 0) {
+            return { success: false, reason: "Игра уже началась" };
+        }
+        
+        const startPos = { q: 1, r: -this.radius + 2 };
+        
+        const player = new TankUnit(telegramId, name, 'ally', startPos.q, startPos.r, 120, 40, '#ffd93d', 'player', null, false, 5);
+        player.isPlayer = true;
+        this.players.push(player);
+        
+        console.log(`Игрок добавлен на позицию (${player.q}, ${player.r})`);
+        return { success: true };
+    }
+    
+    getAllUnits() {
+        return [...this.players, ...this.allies, ...this.enemies];
+    }
+    
+    getFirstPlayer() {
+        return this.players[0];
+    }
+    
+    hasPlayers() {
+        return this.players.length > 0;
+    }
+    
+    isGameOver() {
+        return this.gameOver;
+    }
+    
+    getWinner() {
+        return this.winner;
+    }
+    
+    getRemainingCooldown(unitId) {
+        const now = Date.now();
+        const lastAction = this.lastActionTime.get(unitId) || 0;
+        return Math.max(0, 2000 - (now - lastAction));
+    }
+    
+    getNeighbors(q, r) {
+        const neighbors = [];
+        for (let dir of DIRECTIONS) {
+            const nq = q + dir.q;
+            const nr = r + dir.r;
+            if (this.isValidCell(nq, nr)) {
+                neighbors.push({ q: nq, r: nr });
+            }
+        }
+        return neighbors;
+    }
+    
+    // Используем HexUtils вместо дублирования
+    areHexAdjacent(q1, r1, q2, r2) {
+        return HexUtils.areAdjacent(q1, r1, q2, r2);
+    }
+    
+    hexDistance(q1, r1, q2, r2) {
+        return HexUtils.distance(q1, r1, q2, r2);
+    }
+    
+    getHexDirection(fromQ, fromR, toQ, toR) {
+        return HexUtils.getDirection(fromQ, fromR, toQ, toR);
+    }
+    
+    getHexLine(q1, r1, q2, r2) {
+        const points = [];
+        const distance = this.hexDistance(q1, r1, q2, r2);
+        
+        if (distance === 0) return points;
+        
+        for (let i = 0; i <= distance; i++) {
+            const t = i / distance;
+            const q = Math.round(q1 + (q2 - q1) * t);
+            const r = Math.round(r1 + (r2 - r1) * t);
+            
+            if (this.isValidCell(q, r)) {
+                points.push({ q, r });
+            }
+        }
+        
+        return points;
+    }
+    
+    hasLineOfSight(q1, r1, q2, r2) {
+        const points = this.getHexLine(q1, r1, q2, r2);
+        
+        for (const point of points) {
+            if (point.q === q1 && point.r === r1) continue;
+            if (point.q === q2 && point.r === r2) continue;
+            
+            if (this.isWall(point.q, point.r)) return false;
+            
+            const cell = this.cells.get(`${point.q},${point.r}`);
+            if (cell && cell.terrain === 'forest') {
+                return Math.random() > 0.3;
+            }
+        }
+        
+        return true;
+    }
+    
+    isWall(q, r) {
+        return this.walls.has(`${q},${r}`);
+    }
+    
+    damageWall(q, r) {
+        const wallKey = `${q},${r}`;
+        if (!this.walls.has(wallKey)) return false;
+        
+        const wall = this.walls.get(wallKey);
+        wall.hp--;
+        
+        if (wall.hp <= 0) {
+            this.walls.delete(wallKey);
+            return true;
+        }
+        
+        return false;
+    }
+    
+    moveToCell(unitId, targetQ, targetR) {
+        const unit = this.getAllUnits().find(u => u.id === unitId);
+        if (!unit || !unit.active) return false;
+        
+        const now = Date.now();
+        const moveCooldown = Math.max(0, unit.moveCooldown - (now - unit.lastMoveTime));
+        if (moveCooldown > 0) return false;
+        
+        const isAdjacent = this.areHexAdjacent(unit.q, unit.r, targetQ, targetR);
+        if (!isAdjacent) return false;
+        
+        const isOccupied = this.getAllUnits().some(u => 
+            u.active && u !== unit && u.q === targetQ && u.r === targetR
+        );
+        if (isOccupied) return false;
+        
+        if (this.isWall(targetQ, targetR)) return false;
+        
+        const targetCell = this.cells.get(`${targetQ},${targetR}`);
+        let moveDelay = 0;
+        if (targetCell && targetCell.terrain === 'swamp') {
+            moveDelay = 500;
+        }
+        
+        const direction = this.getHexDirection(unit.q, unit.r, targetQ, targetR);
+        unit.setDirection(direction);
+        unit.moveTo(targetQ, targetR);
+        
+        unit.lastMoveTime = Date.now() + moveDelay;
+        
+        this.checkBaseCapture(unit, targetQ, targetR);
+        
+        return true;
+    }
+    
+    checkBaseCapture(unit, q, r) {
+        const cell = this.cells.get(`${q},${r}`);
+        if (cell && cell.hasBase && cell.baseOwner !== unit.team) {
+            if (!cell.captureProgress) cell.captureProgress = 0;
+            cell.captureProgress += 50;
+            
+            if (cell.captureProgress >= 100) {
+                cell.baseOwner = unit.team;
+                cell.captureProgress = 0;
+                console.log(`База захвачена командой ${unit.team}!`);
+            }
+        }
+    }
+    
+    shootAtCell(attackerId, targetQ, targetR) {
+        console.log(`shootAtCell called: attacker ${attackerId} -> (${targetQ}, ${targetR})`);
+        
+        const attacker = this.getAllUnits().find(u => u.id === attackerId);
+        if (!attacker || !attacker.active) {
+            console.log('Attacker not found or inactive');
+            return { success: false, message: "Неактивен" };
+        }
+        
+        const now = Date.now();
+        const shootCooldown = Math.max(0, attacker.shootCooldown - (now - attacker.lastShootTime));
+        if (shootCooldown > 0) {
+            console.log('Shoot Cooldown:', shootCooldown);
+            return { success: false, message: `Перезарядка стрельбы: ${Math.ceil(shootCooldown/1000)}с` };
+        }
+        
+        const distance = this.hexDistance(attacker.q, attacker.r, targetQ, targetR);
+        if (distance > (attacker.range || 5)) {
+            console.log('Distance too far:', distance);
+            return { success: false, message: `Слишком далеко (${distance})` };
+        }
+        
+        if (!this.hasLineOfSight(attacker.q, attacker.r, targetQ, targetR)) {
+            console.log('No line of sight');
+            return { success: false, message: "На пути стена или лес" };
+        }
+        
+        attacker.lastShootTime = Date.now();
+        
+        // Ищем живого врага на клетке
+        let target = this.getAllUnits().find(u => 
+            u.active && u.team !== attacker.team && u.q === targetQ && u.r === targetR
+        );
+        
+        const targetCell = this.cells.get(`${targetQ},${targetR}`);
+        let damage = attacker.damage;
+        let hitChance = 1.0;
+        
+        // Лес укрывает
+        if (targetCell && targetCell.terrain === 'forest') {
+            hitChance = 0.7;
+            if (Math.random() > hitChance) {
+                console.log('Missed due to forest');
+                return {
+                    success: true,
+                    hit: false,
+                    killed: false,
+                    message: `🌳 Лес укрыл цель! Промах!`,
+                    targetQ: targetQ,
+                    targetR: targetR,
+                    fromQ: attacker.q,
+                    fromR: attacker.r,
+                    attackerId: attacker.id
+                };
+            }
+        }
+        
+        // Стрельба по стене (если нет живого врага)
+        if (!target) {
+            const wallDestroyed = this.damageWall(targetQ, targetR);
+            console.log('Shot at wall, destroyed:', wallDestroyed);
+            return {
+                success: true,
+                hit: false,
+                wallDestroyed: wallDestroyed,
+                message: wallDestroyed ? "🧱 Стена разрушена!" : "💨 Промах!",
+                targetQ: targetQ,
+                targetR: targetR,
+                fromQ: attacker.q,
+                fromR: attacker.r,
+                attackerId: attacker.id
+            };
+        }
+        
+        // Попадание по врагу
+        console.log(`Hit ${target.name} for ${damage} damage`);
+        target.hp -= damage;
+        
+        if (target.hp <= 0) {
+            target.active = false;
+            attacker.kills++;
+            console.log(`${target.name} destroyed!`);
+            return {
+                success: true,
+                hit: true,
+                killed: true,
+                message: `💀 ${target.name} уничтожен!`,
+                targetX: target.q,
+                targetY: target.r,
+                fromQ: attacker.q,
+                fromR: attacker.r,
+                attackerId: attacker.id
+            };
+        }
+        
+        return {
+            success: true,
+            hit: true,
+            killed: false,
+            message: `💥 Попадание в ${target.name}! -${damage} HP`,
+            targetX: target.q,
+            targetY: target.r,
+            fromQ: attacker.q,
+            fromR: attacker.r,
+            attackerId: attacker.id
+        };
+    }
+    
+    botAction() {
+        const player = this.getFirstPlayer();
+        if (!player || !player.active) return [];
+        
+        const results = [];
+        
+        for (let enemy of this.enemies) {
+            if (!enemy.active) continue;
+            
+            const cooldown = this.getRemainingCooldown(enemy.id);
+            if (cooldown > 0) continue;
+            
+            const distance = this.hexDistance(enemy.q, enemy.r, player.q, player.r);
+            
+            if (distance <= 5 && Math.random() < 0.45) {
+                const fromQ = enemy.q;
+                const fromR = enemy.r;
+                const result = this.shootAtCell(enemy.id, player.q, player.r);
+                
+                if (result) {
+                    result.fromQ = fromQ;
+                    result.fromR = fromR;
+                    result.attackerId = enemy.id;
+                    results.push(result);
+                }
+            } else if (Math.random() < 0.35) {
+                const neighbors = this.getNeighbors(enemy.q, enemy.r);
+                const validNeighbors = neighbors.filter(n => {
+                    const occupied = this.getAllUnits().some(u => u.active && u.q === n.q && u.r === n.r);
+                    const hasWall = this.isWall(n.q, n.r);
+                    return !occupied && !hasWall;
+                });
+                
+                if (validNeighbors.length > 0) {
+                    const randomNeighbor = validNeighbors[Math.floor(Math.random() * validNeighbors.length)];
+                    this.moveToCell(enemy.id, randomNeighbor.q, randomNeighbor.r);
+                }
+            }
+        }
+        
+        return results;
+    }
+    
+    getStateForPlayer(playerId) {
+        const player = this.players.find(p => p.id === playerId);
+        if (!player) return null;
+        
+        const visibleEnemies = this.enemies
+            .filter(e => e.active)
+            .map(e => e.toJSON());
+        
+        const visibleAllies = this.allies
+            .filter(a => a.active)
+            .map(a => a.toJSON());
+        
+        const visibleCells = [];
+        const visibleWalls = [];
+        const visibleBases = [];
+        
+        for (let [key, cell] of this.cells) {
+            visibleCells.push({ q: cell.q, r: cell.r, terrain: cell.terrain });
+            
+            if (this.isWall(cell.q, cell.r)) {
+                const wall = this.walls.get(key);
+                visibleWalls.push({ q: cell.q, r: cell.r, hp: wall.hp, type: wall.type });
+            }
+            
+            if (cell.hasBase) {
+                visibleBases.push({ q: cell.q, r: cell.r, owner: cell.baseOwner, progress: cell.captureProgress || 0 });
+            }
+        }
+        
+        return {
+            radius: this.radius,
+            myTank: player.toJSON(),
+            enemies: visibleEnemies,
+            allies: visibleAllies,
+            walls: visibleWalls,
+            bases: visibleBases,
+            cells: visibleCells,
+            smokeEffects: [],
+            visibleCells: visibleCells,
+            lastActionTime: this.lastActionTime.get(player.id) || 0,
+            gameOver: this.gameOver,
+            winner: this.winner
+        };
+    }
+    
+    checkWinner() {
+        let playerBaseCaptured = true;
+        let enemyBaseCaptured = true;
+        
+        for (let [key, cell] of this.cells) {
+            if (cell.hasBase) {
+                if (cell.baseOwner === 'player') playerBaseCaptured = false;
+                if (cell.baseOwner === 'enemy') enemyBaseCaptured = false;
+            }
+        }
+        
+        if (enemyBaseCaptured) {
+            this.gameOver = true;
+            this.winner = "ПОБЕДА! Все базы захвачены!";
+            return true;
+        }
+        
+        if (playerBaseCaptured) {
+            this.gameOver = true;
+            this.winner = "ПОРАЖЕНИЕ! Ваша база захвачена!";
+            return true;
+        }
+        
+        const aliveEnemies = this.enemies.filter(e => e.active);
+        const aliveAllies = this.allies.filter(a => a.active);
+        const alivePlayer = this.players.filter(p => p.active);
+        
+        if (aliveEnemies.length === 0 && (aliveAllies.length > 0 || alivePlayer.length > 0)) {
+            this.gameOver = true;
+            this.winner = "ПОБЕДА! Враги уничтожены!";
+            return true;
+        }
+        
+        if ((aliveAllies.length === 0 && alivePlayer.length === 0) && aliveEnemies.length > 0) {
+            this.gameOver = true;
+            this.winner = "ПОРАЖЕНИЕ! Все танки уничтожены!";
+            return true;
+        }
+        
+        return false;
+    }
 }
 
-module.exports = TankGame;
+module.exports = { TankGame };

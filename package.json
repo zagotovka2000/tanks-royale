@@ -4,8 +4,8 @@
    "description": "Tank Royale - пошаговая тактическая игра в Telegram",
    "main": "index.js",
    "scripts": {
-      "start": "node server/server.js",
-      "dev": "nodemon server/server.js"
+      "start": "node index.js",
+      "dev": "nodemon index.js"
    },
    "dependencies": {
       "dotenv": "^17.4.2",
@@ -20,3 +20,4 @@
       "nodemon": "^3.0.1"
    }
 }
+
